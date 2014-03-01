@@ -25,6 +25,8 @@
 
 #define IET_SENSE_BUF_SIZE      18
 
+static char *reserve_virt_addr;
+
 struct iscsi_sess_param {
 	int initial_r2t;
 	int immediate_data;

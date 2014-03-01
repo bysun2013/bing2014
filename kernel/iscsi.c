@@ -24,6 +24,12 @@ static int ctr_major;
 static char ctr_name[] = "ietctl";
 extern struct file_operations ctr_fops;
 
+/* param of reserved memory at boot*/
+MODULE_PARM(mem_start, "i");
+MODULE_PARM(mem_size, "i");
+
+static int mem_start = 101, mem_size = 10;
+
 static u32 cmnd_write_size(struct iscsi_cmnd *cmnd)
 {
 	struct iscsi_scsi_cmd_hdr *hdr = cmnd_hdr(cmnd);
@@ -1996,6 +2002,10 @@ static void iscsi_exit(void)
 	iotype_exit();
 
 	ua_exit();
+	
+	/*unmap reserved physical memory */
+	if (reserve_virt_addr)
+¡¡¡¡	iounmap(reserve_virt_addr);
 
 	if (iscsi_cmnd_cache)
 		kmem_cache_destroy(iscsi_cmnd_cache);
@@ -2011,7 +2021,11 @@ static int iscsi_init(void)
 		eprintk("failed to register the control device %d\n", ctr_major);
 		return ctr_major;
 	}
-
+	/*map reserved physical memory into kernel region*/
+	if((reserve_virt_addr = ioremap(mem_start *1024 * 1024, mem_size *1024 * 1024))<0)
+		goto err;
+	printk("reserve_virt_addr = 0x%lx\n", (unsigned long)reserve_virt_addr);
+	
 	if ((err = iet_procfs_init()) < 0)
 		goto err;
 
@@ -2034,7 +2048,7 @@ static int iscsi_init(void)
 
 	if ((err = wthread_module_init()) < 0)
 		goto err;
-
+	if(ioremap())
 	return 0;
 
 err:
