@@ -1,0 +1,31 @@
+1）git branch 分支名 
+虽然创建了分支，但是不会将当前工作分支切换到新创建的分支上，因此，还需要命令“git checkout 分支名” 来切换
+ 
+2）git checkout –b 分支名 
+不但创建了分支，还将当前工作分支切换到了该分支上。
+ 
+3)切换到某个分支：git checkout 分支名 
+切换到主分支：git checkout master 
+
+-----------提交的过程------------------
+4)Git add 
+将当前工作目录中更改或者新增的文件加入到Git的索引中，加入到Git的索引中就表示记入了版本历史中，这也是提交之前所需要执行的一步。 
+可以递归添加，即如果后面跟的是一个目录作为参数，则会递归添加整个目录中的所有子目录和文件。例如： 
+       git add dir1 （ 添加dir1这个目录，目录下的所有文件都被加入 ） 
+       Git add f1 f2 （ 添加f1，f2文件） 
+       git add .      ( 添加当前目录下的所有文件和子目录 ) 
+
+5）Git commit 
+提交当前工作目录的修改内容。 
+直接调用git commit命令，会提示填写注释。通过如下方式在命令行就填写提交注释：
+	git commit -m "Initial commit of gittutor reposistory"。 
+注意，git的提交注释必须不能为空，否则就会提交失败。 
+       git commit还有一个 -a的参数，可以将那些没有通过git add标识的变化一并强行提交，但是不建议使用这种方式。 
+每一次提交，git就会为全局代码建立一个唯一的commit标识代码，用户可以通过git reset命令恢复到任意一次提交时的代码。 
+       git commit –-amend –m “message” （在一个commit id上不断修改提交的内容） 
+
+6)Git push 
+将本地commit的代码更新到远程版本库中
+例如 “git push origin master”就会将本地分支master的代码更新到名为orgin的远程版本库中。 
+     “git push origin”就会将本地分支的代码更新到名为orgin的远程版本库中。 
+--------提交代码到远程仓库-----完成-----
