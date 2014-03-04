@@ -1,0 +1,16 @@
+When changes to the iSCSI target configuration are necessary, you always must restart the target to activate changes that are done in the configuration file. Unfortunately, all active sessions are interrupted in this process. 
+The changes that you make with the command ietadm are not permanent for the system. These changes are lost at the next reboot if they are not added to the configuration file /etc/ietd.conf. Depending on the usage of iSCSI in your network, this may lead to severe problems.
+To maintain an undisturbed operation, the changes should be done in the main configuration file /etc/ietd.conf, but also made manually to the current configuration with the administration utility ietadm.
+WARNING: Update ietd.conf According to Changes with ietadm
+
+To create a new iSCSI target with a LUN, first update your configuration file. The additional entry could be:
+
+Target iqn.2006-02.com.example.iserv:system2
+          Lun 0 Path=/dev/mapper/system-swap2
+          IncomingUser joe secret
+          
+To set up this configuration manually, proceed as follows:
+	1. Create a new target with the command ietadm --op new --tid=2 --params Name=iqn.2006-02.com.example.iserv:system2.
+	2. Add a logical unit with ietadm --op new --tid=2 --lun=0 --params Path=/dev/mapper/system-swap2.
+	3. Set the username and password combination on this target with ietadm --op new --tid=2 --user --params=IncomingUser=joe,Password=secret.
+	4. Check the configuration with cat /proc/net/iet/volume.
