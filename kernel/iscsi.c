@@ -2000,7 +2000,7 @@ static void iscsi_exit(void)
 
 	ua_exit();
 	
-	iscsi_cache_exit();
+	iet_cache_exit();
 
 	if (iscsi_cmnd_cache)
 		kmem_cache_destroy(iscsi_cmnd_cache);
@@ -2037,7 +2037,7 @@ static int iscsi_init(void)
 	if ((err = iotype_init()) < 0)
 		goto err;
 	
-	if((err=iscsi_cache_init())<0)
+	if((err=iet_cache_init())<0)
 		goto err;
 
 	if ((err = wthread_module_init()) < 0)

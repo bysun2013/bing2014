@@ -17,11 +17,8 @@
 #include "iscsi.h"
 #include "iscsi_dbg.h"
 #include "iotype.h"
+#include "iscsi_cache.h"
 
-struct blockio_data {
-	char *path;
-	struct block_device *bdev;
-};
 
 struct tio_work {
 	atomic_t error;
@@ -78,6 +75,18 @@ blockio_make_request(struct iet_volume *volume, struct tio *tio, int rw)
 	atomic_set(&tio_work->bios_remaining, 0);
 	init_completion(&tio_work->tio_complete);
 
+	/* cache */
+	if(rw==WRITE)
+		iet_cache_add(volume, tio, rw);
+	else if(rw==READ){
+		dev_t dev=bio_data->bdev->bd_dev;
+		int page_seq= ppos>>11;
+		int index = 0;
+		for(;index < tio->pg_cnt;index++,page_seq++){
+			iet_cache_find(dev, page_seq);
+		}
+	}
+		
 	/* Main processing loop, allocate and fill all bios */
 	while (size && tio_index < tio->pg_cnt) {
 		bio = bio_alloc(GFP_KERNEL, min(max_pages, BIO_MAX_PAGES));
