@@ -9,13 +9,11 @@
 
 #include "iscsi.h"
 
-
-
 extern int iet_page_num;
 
 /*LRU link all of pages and devices*/
-struct list_head lru;
-struct list_head iet_devices;
+extern struct list_head lru;
+extern struct list_head iet_devices;
 
 
 struct iet_cache_page{
@@ -41,9 +39,9 @@ int iet_cache_release(struct iet_cache_page *);
 
 struct iet_cache_page* iet_cache_find(dev_t, pgoff_t);
 
-int iet_cache_init();
+int iet_cache_init(void);
 
-int iet_cache_exit();
+int iet_cache_exit(void);
 
 
 #endif

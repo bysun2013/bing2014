@@ -12,9 +12,7 @@
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <asm/atomic.h>
-#include <asm-generic/page.h>
 #include <linux/blkdev.h>
-
 #include <linux/hash.h>
 #include <scsi/scsi.h>
 
@@ -23,6 +21,7 @@
 #include "iotype.h"
 #include "iscsi.h"
 #include "iscsi_cache.h"
+
 
 
 /* param of reserved memory at boot*/
@@ -36,9 +35,13 @@ static void *reserve_virt_addr;
 
 static struct kmem_cache *iet_page_cache;
 
+/*LRU link all of pages and devices*/
+struct list_head lru;
+struct list_head iet_devices;
+
 int iet_page_num;
 
-static int iet_page_init(){
+static int iet_page_init(void){
 	iet_page_cache = KMEM_CACHE(iet_cache_page, 0);
 	return  iet_page_cache ? 0 : -ENOMEM;
 }
@@ -125,8 +128,8 @@ int iet_cache_add(struct iet_volume *volume, struct tio *tio, int rw){
 		}
 		
 		/* copy tio page info into the page structof iet cache */
-		dist = page_to_virt(iet_page->page);
-		source = page_to_virt(tio->pvec[index]);
+		dist = page_to_phys(iet_page->page);
+		source = page_to_phys(tio->pvec[index]);
 		
 		for(t=0; t<PAGE_SIZE; t++){
 			*dist++ = *source++;
@@ -176,7 +179,7 @@ struct iet_cache_page* iet_cache_find(dev_t dev, pgoff_t offset){
 	return iet_page;
 }
 
-int iet_cache_init(){
+int iet_cache_init(void){
 	int err = 0;
 	unsigned int i;
 	phys_addr_t reserve_phys_addr;
@@ -208,7 +211,7 @@ int iet_cache_init(){
 
 
 
-int iet_cache_exit(){
+int iet_cache_exit(void){
 		
 	struct list_head *list;
 	
