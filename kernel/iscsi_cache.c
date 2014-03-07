@@ -13,9 +13,7 @@
 #include <linux/mm.h>
 #include <asm/atomic.h>
 #include <linux/blkdev.h>
-#include <linux/hash.h>
 #include <scsi/scsi.h>
-
 
 #include "iscsi_dbg.h"
 #include "iotype.h"
@@ -48,7 +46,7 @@ static int iet_page_init(void){
 
 struct iet_device* iet_cache_find_device(dev_t dev){
 	
-	struct iet_device *device=NULL;
+	struct iet_device *device;
 	if(!iet_devices.next){
 		device=kmalloc(sizeof(struct iet_device), GFP_KERNEL);
 		
@@ -73,9 +71,10 @@ struct iet_device* iet_cache_find_device(dev_t dev){
 		device->bdev=dev;
 		address_space_init_once(&device->mapping);
 		list_add(&device->list, &iet_devices);
+		return device;
 	}
 	
-	return device;
+	return NULL;
 }
 
 int iet_cache_add(struct iet_volume *volume, struct tio *tio, int rw){
@@ -85,13 +84,8 @@ int iet_cache_add(struct iet_volume *volume, struct tio *tio, int rw){
 	struct address_space * mapping = NULL;
 	struct iet_cache_page *iet_page = NULL;
 
-	/* search for empty page from the end of list */
-	struct list_head *list=lru.prev;
 	loff_t ppos = tio->offset;
-	struct page *page;
-	int i, index, count;
-	rw=1;
-	count=tio->pg_cnt;
+	int i, index, count=tio->pg_cnt;
 	
 	device = iet_cache_find_device(bio_data->bdev->bd_dev);
 	if(!device){
@@ -100,33 +94,42 @@ int iet_cache_add(struct iet_volume *volume, struct tio *tio, int rw){
 	}
 
 	if(!(mapping=&device->mapping)){
-		printk(KERN_ALERT"can't find device\n");
+		printk(KERN_ALERT"can't find mapping, reason is unknown.\n");
 		return -1;
 	}
 	
 	for(i=0,index=0;i<count;i++,index++){
 		
+		struct page *page;
+		struct list_head *list=lru.prev;
 		sector_t sector = ppos>>9;
-		pgoff_t page_index = sector>>2;
+		pgoff_t page_index = sector>>2;   /*here we assume block is aligned in page */
 		int t;
 		char *dist, *source;
 
 		/* 
-		** find the correct page if exist, however HAVE NOT checked whether it's dirty
-		** 		FIXME!!!
+		** FIXME!!!find the correct page if exist, however HAVE NOT checked whether it's dirty		
 		*/
-		if((page=find_get_page(mapping, page_index))!= NULL)
+		if((page=find_get_page(mapping, page_index))!= NULL){
+			printk(KERN_ALERT"the exact page is found. however dirty flag is not checked.\n");
 			return 0;
+		}
+		
+		/* search for empty page from the end of list */
 		while(list->prev != &lru){
 			iet_page=list_entry(list,struct iet_cache_page, lru_list);
 
 			if(atomic_read(&iet_page->page->_count)>0){
 				list=list->prev;
 				continue;
-			}else
+			}else{
+				list_del(list);
+				list_add(list,&lru);
 				break;
+			}
 		}
-		
+		if(!iet_page)
+			return -1;
 		/* copy tio page info into the page structof iet cache */
 		dist = page_to_phys(iet_page->page);
 		source = page_to_phys(tio->pvec[index]);
@@ -137,20 +140,24 @@ int iet_cache_add(struct iet_volume *volume, struct tio *tio, int rw){
 		
 		atomic_inc(&iet_page->page->_count);
 		iet_page->page->mapping= &device->mapping;
-
+		iet_page->device = device;
+		iet_page->bdev= bio_data->bdev->bd_dev;
 		add_to_page_cache(iet_page->page, mapping, page_index, GFP_KERNEL);
+		
 		ppos+= PAGE_SIZE;
+		
 	}
+	
 	return 0;
 }
 
 int iet_cache_release(struct iet_cache_page *iet_page){
-	
-	list_del(&iet_page->lru_list);
-	list_add_tail(&iet_page->lru_list, &lru);
 
 	/*we assume only we use the page frame*/
 	atomic_dec(&iet_page->page->_count);
+	
+	list_del(&iet_page->lru_list);
+	list_add_tail(&iet_page->lru_list, &lru);
 
 	delete_from_page_cache(iet_page->page);
 	return 0;
@@ -188,10 +195,11 @@ int iet_cache_init(void){
 	/*map reserved physical memory into kernel region*/
 	if((reserve_virt_addr = ioremap(iet_mem_start *1024 * 1024, iet_mem_size *1024 * 1024)) < 0)
 		return -1;
-	printk("reserve_virt_addr = 0x%lx\n", (unsigned long)reserve_virt_addr);
 
 	reserve_phys_addr=virt_to_phys(reserve_virt_addr);
 	cache_page=virt_to_page(reserve_virt_addr);
+	printk(KERN_ALERT"reserve_virt_addr = 0x%lx reserve_phys_addr = 0x%lx \n", 
+		(unsigned long)reserve_virt_addr, (unsigned long)reserve_phys_addr);
 
 	if((err=iet_page_init())< 0)
 		return err;
@@ -202,14 +210,15 @@ int iet_cache_init(void){
 	iet_page_num = iet_mem_size/PAGE_SIZE;
 	for(i=0;i<iet_page_num;i++){
 		iet_cache=kmem_cache_alloc(iet_page_cache, GFP_KERNEL | __GFP_NOFAIL);
+		iet_cache->bdev = -1;
+		iet_cache->sector = -1;
+		iet_cache->device = NULL;
 		list_add(&iet_cache->lru_list, &lru);
 		/*I'm not sure it works...*/
 		iet_cache->page=cache_page++;
 	}
 	return err;
 }
-
-
 
 int iet_cache_exit(void){
 		

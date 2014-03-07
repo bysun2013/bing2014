@@ -75,15 +75,16 @@ blockio_make_request(struct iet_volume *volume, struct tio *tio, int rw)
 	atomic_set(&tio_work->bios_remaining, 0);
 	init_completion(&tio_work->tio_complete);
 
-	/* cache */
-	if(rw==WRITE)
-		iet_cache_add(volume, tio, rw);
-	else if(rw==READ){
+	/* iscsi cache*/
+	if(rw == WRITE || rw == READ){
 		dev_t dev=bio_data->bdev->bd_dev;
-		int page_seq= ppos>>11;
+		int page_seq= (ppos>>12);  /*page is 4KB, and block is 512 Byte*/
 		int index = 0;
 		for(;index < tio->pg_cnt;index++,page_seq++){
-			iet_cache_find(dev, page_seq);
+			
+			if(!iet_cache_find(dev, page_seq)){
+				iet_cache_add(volume, tio, rw);
+			}
 		}
 	}
 		

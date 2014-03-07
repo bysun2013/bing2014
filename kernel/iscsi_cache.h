@@ -21,7 +21,7 @@ struct iet_cache_page{
 	dev_t bdev;
 	sector_t		sector;
 	struct list_head lru_list;
-	
+	struct iet_device *device;
 };
 
 struct iet_device{
