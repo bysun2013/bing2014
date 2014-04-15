@@ -18,10 +18,11 @@ extern struct list_head iet_devices;
 
 struct iet_cache_page{
 	struct page *page;
-	dev_t bdev;
-	sector_t		sector;
+//	dev_t bdev;
+//	sector_t		sector;
 	struct list_head lru_list;
-	struct iet_device *device;
+//	struct iet_device *device;
+	atomic_t count;
 };
 
 struct iet_device{
@@ -32,12 +33,14 @@ struct iet_device{
 
 
 
+int iet_cache_add(dev_t dev, unsigned long page_index, struct page *page);
 
-int iet_cache_add(struct iet_volume *, struct tio *, int);
+
+struct iet_cache_page* iet_cache_find(dev_t dev, unsigned long offset);
+
 
 int iet_cache_release(struct iet_cache_page *);
 
-struct iet_cache_page* iet_cache_find(dev_t, pgoff_t);
 
 int iet_cache_init(void);
 
