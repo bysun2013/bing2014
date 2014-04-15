@@ -14,7 +14,9 @@ struct iotype {
 	struct list_head iot_list;
 
 	int (*attach)(struct iet_volume *dev, char *args);
-	int (*make_request)(struct iet_volume *dev, struct tio *tio, int rw);
+//	int (*make_request)(struct iet_volume *dev, struct tio *tio, int rw);
+	int (*make_read_request)(struct iet_volume *dev, struct tio *tio, int rw);
+	int (*make_write_request)(struct iet_volume *dev, struct tio *tio, int rw);
 	int (*sync)(struct iet_volume *dev, struct tio *tio);
 	void (*detach)(struct iet_volume *dev);
 	void (*show)(struct iet_volume *dev, struct seq_file *seq);

@@ -247,7 +247,8 @@ struct iotype fileio =
 {
 	.name = "fileio",
 	.attach = fileio_attach,
-	.make_request = fileio_make_request,
+	.make_read_request = fileio_make_request,
+	.make_write_request = fileio_make_request,
 	.sync = fileio_sync,
 	.detach = fileio_detach,
 	.show = fileio_show,

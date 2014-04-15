@@ -28,13 +28,14 @@ static int  iet_mem_start = 960, iet_mem_size = 10;
 module_param(iet_mem_start, int, S_IRUGO|S_IWUSR);
 module_param(iet_mem_size, int, S_IRUGO|S_IWUSR);
 
-char *reserve_virt_addr;
+static char *reserve_virt_addr;
 
 static struct kmem_cache *iet_page_cache;
 
 /*LRU link all of pages and devices*/
 struct list_head lru;
 struct list_head iet_devices;
+struct radix_tree_root page_tree;	/* radix tree of all pages */
 
 
 static int iet_page_init(void){
@@ -78,7 +79,7 @@ static struct iet_device* iet_cache_find_device(dev_t dev){
 	return device;
 }
 
-static int add_to_iet_radix(struct page *page, struct address_space *mapping,
+static int add_to_iet_radix(struct page *page, struct iet_volume *lun,
 		pgoff_t offset, gfp_t gfp_mask)
 {
 	int error;
@@ -105,6 +106,13 @@ static int add_to_iet_radix(struct page *page, struct address_space *mapping,
 	return error;
 }
 
+static int copy_from_tio(){
+	
+}
+static int copy_to_tio(){
+	
+}
+
 static void delete_from_iet_radix(struct page *page)
 {
 	struct address_space *mapping = page->mapping;
@@ -126,7 +134,7 @@ static struct page *find_from_iet_radix(struct address_space *mapping, pgoff_t o
 	void **pagep;
 	
 	rcu_read_lock();
-repeat:	
+repeat:
 	pagep = radix_tree_lookup_slot(&mapping->page_tree, offset);
 	if (pagep) {
 		page = radix_tree_deref_slot(pagep);
