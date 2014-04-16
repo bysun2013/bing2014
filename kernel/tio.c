@@ -128,7 +128,7 @@ int tio_read(struct iet_volume *lu, struct tio *tio)
 	assert(iot);
 	if (!tio->size)
 		return 0;
-	return iot->make_request ? iot->make_read_request(lu, tio, READ) : 0;
+	return iot->make_read_request ? iot->make_read_request(lu, tio, READ) : 0;
 }
 
 int tio_write(struct iet_volume *lu, struct tio *tio)
@@ -137,7 +137,7 @@ int tio_write(struct iet_volume *lu, struct tio *tio)
 	assert(iot);
 	if (!tio->size)
 		return 0;
-	return iot->make_request ? iot->make_write_request(lu, tio, WRITE) : 0;
+	return iot->make_write_request ? iot->make_write_request(lu, tio, WRITE) : 0;
 }
 
 int tio_sync(struct iet_volume *lu, struct tio *tio)

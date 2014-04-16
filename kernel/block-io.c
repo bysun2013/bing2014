@@ -155,7 +155,8 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 	struct tio_work *tio_work;
 	struct bio *tio_bio = NULL, *bio = NULL, *biotail = NULL;
 	struct blk_plug plug;
-
+	struct iet_cache_page *iet_page;
+	
 	u32 size = tio->size;
 	u32 tio_index = 0;
 
@@ -175,19 +176,6 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 	atomic_set(&tio_work->error, 0);
 	atomic_set(&tio_work->bios_remaining, 0);
 	init_completion(&tio_work->tio_complete);
-
-	/* iscsi cache*/
-	if(rw == WRITE || rw == READ){
-		dev_t dev=bio_data->bdev->bd_dev;
-		int page_seq= (ppos>>12);  /*page is 4KB, and block is 512 Byte*/
-		int index = 0;
-		for(;index < tio->pg_cnt;index++,page_seq++){
-			
-			if(!iet_cache_find(dev, page_seq)){
-				iet_cache_add(volume, tio, rw);
-			}
-		}
-	}
 		
 	/* Main processing loop, allocate and fill all bios */
 	while (size && tio_index < tio->pg_cnt) {
@@ -217,8 +205,15 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 			if (bytes > size)
 				bytes = size;
 
-			if (!bio_add_page(bio, tio->pvec[tio_index], bytes, 0))
-				break;
+//			if (!bio_add_page(bio, tio->pvec[tio_index], bytes, 0))
+//				break;
+
+			iet_page= iet_find_page_from_cache(volume, ppos>>9);
+			if(!iet_page)
+				iet_add_page_to_cache(volume, tio->pvec[tio_index], ppos>>9, rw);
+			else{
+				iet_update_page_to_cache(iet_page, tio->pvec[tio_index]);
+			}
 
 			size -= bytes;
 			ppos += bytes;
@@ -289,19 +284,6 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 	atomic_set(&tio_work->error, 0);
 	atomic_set(&tio_work->bios_remaining, 0);
 	init_completion(&tio_work->tio_complete);
-
-	/* iscsi cache*/
-	if(rw == WRITE || rw == READ){
-		dev_t dev=bio_data->bdev->bd_dev;
-		int page_seq= (ppos>>12);  /*page is 4KB, and block is 512 Byte*/
-		int index = 0;
-		for(;index < tio->pg_cnt;index++,page_seq++){
-			
-			if(!iet_cache_find(dev, page_seq)){
-				iet_cache_add(volume, tio, rw);
-			}
-		}
-	}
 		
 	/* Main processing loop, allocate and fill all bios */
 	while (size && tio_index < tio->pg_cnt) {

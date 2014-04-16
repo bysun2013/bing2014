@@ -1,0 +1,1 @@
+cmd_/media/sf_iet/kernel/iscsi_trgt.ko := ld -r -m elf_i386 -T /usr/src/linux-headers-3.5.0-46-generic/scripts/module-common.lds --build-id  -o /media/sf_iet/kernel/iscsi_trgt.ko /media/sf_iet/kernel/iscsi_trgt.o /media/sf_iet/kernel/iscsi_trgt.mod.o
