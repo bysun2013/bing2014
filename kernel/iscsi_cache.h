@@ -11,15 +11,18 @@
 
 extern int iet_page_num;
 
+#define SECTOR_SIZE	512
+#define SECTOR_PER_PAGE	8
+
 
 struct iet_cache_page{
 	struct page *page;
-
+	char bitmap;    /* block is 512 Byte, and page is 4KB, so 8 bit are used */
+	
 	struct iet_volume *volume;
 	pgoff_t	index;
 	
 	struct list_head lru_list;
-	
 	atomic_t count;
 };
 

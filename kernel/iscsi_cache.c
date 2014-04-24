@@ -39,6 +39,21 @@ static struct list_head lru;
 
 spinlock_t		lru_lock;
 
+char get_bitmap(sector_t sector, loff_t off){
+	char bitmap=0;
+	
+	int i;
+	i = sector-(sector/SECTOR_PER_PAGE)*SECTOR_PER_PAGE;
+
+	while(bytes>0){
+		bitmap= bitmap & 1<<i;
+		bytes-=SECTOR_SIZE;
+		i++;
+	}
+	
+	return bitmap;
+}
+
 static int add_page_to_radix(struct iet_volume *lun, struct iet_cache_page *page, 
 		gfp_t gfp_mask)
 {

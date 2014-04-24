@@ -151,67 +151,33 @@ static int
 blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 {
 	struct blockio_data *bio_data = volume->private;
-	struct request_queue *bdev_q = bdev_get_queue(bio_data->bdev);
-	struct tio_work *tio_work;
 	struct bio *tio_bio = NULL, *bio = NULL, *biotail = NULL;
-	struct blk_plug plug;
 	struct iet_cache_page *iet_page;
 	
 	u32 size = tio->size;
 	u32 tio_index = 0;
 
-	int max_pages = 1;
 	int err = 0;
 
 	loff_t ppos = tio->offset;
+	assert(ppos%512==0);
+	sector_t lba=ppos>>9;
+	sector_t alba=(lba>>3)<<3;
+	loff_t lba_off=lba-alba;
 
-	/* Calculate max_pages for bio_alloc (memory saver) */
-	if (bdev_q)
-		max_pages = bio_get_nr_vecs(bio_data->bdev);
-
-	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
-	if (!tio_work)
-		return -ENOMEM;
-
-	atomic_set(&tio_work->error, 0);
-	atomic_set(&tio_work->bios_remaining, 0);
-	init_completion(&tio_work->tio_complete);
-		
 	/* Main processing loop, allocate and fill all bios */
 	while (size && tio_index < tio->pg_cnt) {
-		bio = bio_alloc(GFP_KERNEL, min(max_pages, BIO_MAX_PAGES));
-		if (!bio) {
-			err = -ENOMEM;
-			goto out;
-		}
-
-		/* bi_sector is ALWAYS in units of 512 bytes */
-		bio->bi_sector = ppos >> 9;
-		bio->bi_bdev = bio_data->bdev;
-		bio->bi_end_io = blockio_bio_endio;
-		bio->bi_private = tio_work;
-
-		if (tio_bio)
-			biotail = biotail->bi_next = bio;
-		else
-			tio_bio = biotail = bio;
-
-		atomic_inc(&tio_work->bios_remaining);
-
-		/* Loop for filling bio */
-		while (size && tio_index < tio->pg_cnt) {
 			unsigned int bytes = PAGE_SIZE;
-
+			
 			if (bytes > size)
 				bytes = size;
-
-//			if (!bio_add_page(bio, tio->pvec[tio_index], bytes, 0))
-//				break;
-
-			iet_page= iet_find_page_from_cache(volume, ppos>>9);
-			if(!iet_page)
-				iet_add_page_to_cache(volume, tio->pvec[tio_index], ppos>>9, rw);
-			else{
+			
+			char bitmap= get_bitmap(lba, lba_off);
+			
+			iet_page= iet_find_page_from_cache(volume, lba);
+			if(iet_page == NULL){
+				iet_add_page_to_cache(volume, tio->pvec[tio_index], lba, rw);
+			}else{
 				iet_update_page_to_cache(iet_page, tio->pvec[tio_index]);
 			}
 
@@ -219,38 +185,8 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 			ppos += bytes;
 
 			tio_index++;
-		}
 	}
 
-	blk_start_plug(&plug);
-
-	/* Walk the list, submitting bios 1 by 1 */
-	while (tio_bio) {
-		bio = tio_bio;
-		tio_bio = tio_bio->bi_next;
-		bio->bi_next = NULL;
-
-		submit_bio(rw, bio);
-	}
-
-	blk_finish_plug(&plug);
-
-	wait_for_completion(&tio_work->tio_complete);
-
-	err = atomic_read(&tio_work->error);
-
-	kfree(tio_work);
-
-	return err;
-out:
-	while (tio_bio) {
-		bio = tio_bio;
-		tio_bio = tio_bio->bi_next;
-
-		bio_put(bio);
-	}
-
-	kfree(tio_work);
 
 	return err;
 }
