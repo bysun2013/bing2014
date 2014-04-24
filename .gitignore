@@ -1,6 +1,9 @@
 # Object files
 *.o
+*.cmd
 *.ko
+*.mod
+*.order
 
 # Libraries
 *.lib
