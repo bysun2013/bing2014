@@ -17,7 +17,9 @@ extern int iet_page_num;
 
 struct iet_cache_page{
 	struct page *page;
-	char bitmap;    /* block is 512 Byte, and page is 4KB, so 8 bit are used */
+	/* valid and dirty bitmap, block is 512 Byte, and page is 4KB, so 8 bit are used */
+	char valid_bitmap;
+	char dirty_bitmap;
 	
 	struct iet_volume *volume;
 	pgoff_t	index;
