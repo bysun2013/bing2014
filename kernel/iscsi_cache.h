@@ -16,22 +16,23 @@ extern int iet_page_num;
 
 
 struct iet_cache_page{
+	struct iet_volume *volume;
 	struct page *page;
-	/* valid and dirty bitmap, block is 512 Byte, and page is 4KB, so 8 bit are used */
+	pgoff_t	index;
+
+	/* block is 512 Byte, and page is 4KB */
 	char valid_bitmap;
 	char dirty_bitmap;
 	
-	struct iet_volume *volume;
-	pgoff_t	index;
-	
+	struct list_head wb_list;
 	struct list_head lru_list;
 	atomic_t count;
+	spinlock_t lock;
 };
 
-int iet_add_page_to_cache(struct iet_volume *volume,  struct page* page,  
-		sector_t sector, int rw); 
+int iet_add_page(struct iet_volume *volume,  struct page* page); 
 
-struct iet_cache_page* iet_find_page_from_cache(struct iet_volume *volume, sector_t sector);
+struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sector);
 
 int iet_del_page_from_cache(struct iet_cache_page *iet_page);
 

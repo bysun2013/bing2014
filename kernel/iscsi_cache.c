@@ -36,21 +36,24 @@ static struct kmem_cache *iet_page_cache;
 
 /*LRU link all of pages and devices*/
 static struct list_head lru;
+static struct list_head wb;
 
 spinlock_t		lru_lock;
+spinlock_t		wb_lock;
 
-char get_bitmap(sector_t sector, loff_t off){
+
+/* bitmap is 7-0, Notice the sequence of bitmap*/
+char get_bitmap(sector_t lba, u32 num){
 	char bitmap=0;
-	
+	sector_t alba, lba_off;
 	int i;
-	i = sector-(sector/SECTOR_PER_PAGE)*SECTOR_PER_PAGE;
-
-	while(bytes>0){
-		bitmap= bitmap & 1<<i;
-		bytes-=SECTOR_SIZE;
-		i++;
-	}
 	
+	alba=(lba>>3)<<3;
+	lba_off=lba-alba;
+	assert(lba_off+num<=8);
+	for(i=0;i<num;i++){
+		bitmap= bitmap | (1<<(lba_off+i));
+	}
 	return bitmap;
 }
 
@@ -122,36 +125,93 @@ out:
 
 }
 
-static int copy_page_from_tio(struct page* page, struct iet_cache_page *iet_page, int size){
-	unsigned int t;
-	char *dist, *source;
+/* the free page is isolated, HAVE NOT list to LRU yet */
+struct iet_cache_page* iet_get_free_page(){
+	struct list_head *list, *tmp;
+	struct iet_cache_page *iet_page=NULL;
+	spin_lock(&lru_lock);
 	
-	dist = page_address(iet_page->page);
+	list_for_each_safe(list, tmp, &lru){
+		iet_page=list_entry(list, struct iet_cache_page, lru_list);
+		assert(iet_page);
+		if(atomic_read(&iet_page->count) == 0){
+			list_del_init(list);
+//			printk(KERN_ALERT"iet_cache_add: find a free iet_cache_page for use.\n");
+			break;
+		}
+		iet_page=NULL;
+	}
+	spin_unlock(&lru_lock);
+/*	
+	if(list==&lru){
+		printk(KERN_ERR"BUG at %s:%d : iet cache page is used up! \n", __FILE__, __LINE__);
+		BUG();
+	}
+*/
+	return iet_page;
+}
+
+
+static void *memcpy(void *dst,const void *src,size_t num){
+	assert((dst != NULL) && (src != NULL));
+	
+	int wordnum = num/4;
+	int slice = num%4;
+	u32 * pintsrc = (int *)src;	
+	u32 * pintdst = (int *)dst;
+	
+	while(wordnum--)
+		*pintdst++ = *pintsrc++;	
+	while (slice--)
+		*((char *)pintdst++) =*((char *)pintsrc++);	
+	return dst;
+}
+
+
+
+static int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
+	char bitmap, unsigned int skip_blk, unsigned int bytes){
+	
+	unsigned int blk_num;
+	char *dest, *source;
+	unsigned int i=0;
+	
+	dest = page_address(iet_page->page);
 	source = page_address(page);
 	
-	printk(KERN_ALERT"this is beginning. copy to cache from tio \n");
-	for(t=0; t<size; t++){
-		*dist= *source;
-		dist++;
-		source++;
+	dest+=(skip_blk<<9);
+	blk_num=(bytes+512)>>9;
+	spin_lock(&iet_page->lock);
+//	printk(KERN_ALERT"this is beginning. copy to cache from tio \n");
+	for(i=0;i<blk_num;i++){
+		memcpy(dest, source, 512);
 	}
-	printk(KERN_ALERT"this is done. copy to cache from tio \n");
+	spin_unlock(&iet_page->lock);
+//	printk(KERN_ALERT"this is done. copy to cache from tio \n");
 	return 0;
 }
-static int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, int size){
-	unsigned int t;
-	char *dist, *source;
+
+
+
+static int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
+	char bitmap, unsigned int skip_blk, unsigned int bytes){
+	
+	unsigned int blk_num;
+	char *dest, *source;
+	unsigned int i=0;
 	
 	source = page_address(iet_page->page);
-	dist= page_address(page);
+	dest = page_address(page);
 	
-	printk(KERN_ALERT"this is beginning. copy to tio \n");
-	for(t=0; t<size; t++){
-		*dist= *source;
-		dist++;
-		source++;
+	dest+=(skip_blk<<9);
+	blk_num=(bytes+512)>>9;
+	spin_lock(&iet_page->lock);
+//	printk(KERN_ALERT"this is beginning. copy cache page to tio \n");
+	for(i=0;i<blk_num;i++){
+		memcpy(dest, source, 512);
 	}
-	printk(KERN_ALERT"this is done. copy to tio \n");
+	spin_unlock(&iet_page->lock);
+//	printk(KERN_ALERT"this is done. copy cache page to tio \n");
 	return 0;
 }
 
@@ -159,66 +219,18 @@ static int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
 ** FIXME!!!
 ** find the correct page if exist, however HAVE NOT checked whether it's dirty	
 */
-int iet_add_page_to_cache(struct iet_volume *volume,  struct page* page,  
-		sector_t sector, int rw){
-
-	
-	struct list_head *list, *tmp;
-	struct iet_cache_page *iet_page=NULL;
-	
+int iet_add_page(struct iet_volume *volume,  struct page* page){
 	int error;
-
-	/* page is 4KB, and sector is 512Byte*/
-	pgoff_t page_index= sector>>3;
-	
-	/* search for empty page from the head of list */
-	list_for_each_safe(list, tmp, &lru){
-		iet_page=list_entry(list, struct iet_cache_page, lru_list);
-		assert(iet_page);
-		if(atomic_read(&iet_page->count) == 0){
-			list_del_init(list);
-			printk(KERN_ALERT"iet_cache_add: find a free iet_cache_page for use.\n");
-			break;
-		}
-	}
-		
-	printk(KERN_ALERT"iet_cache_add: here is a victory.\n");
-	
-	if(rw==READ){
-		copy_page_to_tio(iet_page, page, PAGE_SIZE);
-		
-	}else if(rw==WRITE){
-		copy_page_from_tio(page,  iet_page, PAGE_SIZE);
-	}
-
-	printk(KERN_ALERT"this is done. 3 \n");
-	atomic_inc(&iet_page->count);
-	iet_page->volume=volume;
-	iet_page->index =page_index;
 
 	error=add_page_to_radix(volume, iet_page, GFP_KERNEL);
 	
 	if(error <0){
-		printk(KERN_ALERT"iet_cache_add: error in add_to_page_iet_cache.\n");
-		goto err;
+		printk(KERN_ERR"iet_cache_add: error in adding to cache.\n");
 	}
-	
-	list_add_tail(list, &lru);
-	printk(KERN_ALERT"iet_cache_add: success in add_to_page_iet_cache.\n");
-	return 0;
-err:
-	list_add(list, &lru);
 	return error;
-	
 }
 
-int iet_update_page_to_cache(struct iet_cache_page iet_page, struct page * page){
-	int err;
-	err= copy_page_from_tio(page, iet_page, PAGE_SIZE);
-	return err;
-}
-
-struct iet_cache_page* iet_find_page_from_cache(struct iet_volume *volume, sector_t sector){
+struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sector){
 
 	struct iet_cache_page * iet_page;
 	int index = sector >>3;
@@ -228,7 +240,7 @@ struct iet_cache_page* iet_find_page_from_cache(struct iet_volume *volume, secto
 	return iet_page;
 }
 
-int iet_del_page_from_cache(struct iet_cache_page *iet_page){
+int iet_del_page(struct iet_cache_page *iet_page){
 
 	list_del_init(&iet_page->lru_list);
 	list_add(&iet_page->lru_list, &lru);
@@ -266,6 +278,9 @@ int iet_cache_init(void){
 		return err;
 
 	INIT_LIST_HEAD(&lru);
+	INIT_LIST_HEAD(&wb);
+	spin_lock_init(&lru_lock);
+	spin_lock_init(&wb_lock);
 
 	iet_page_num = (iet_mem_size*1024*1024)/PAGE_SIZE;
 
