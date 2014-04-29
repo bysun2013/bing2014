@@ -56,7 +56,6 @@ char get_bitmap(sector_t lba, u32 num){
 	}
 	return bitmap;
 }
-
 static int add_page_to_radix(struct iet_volume *lun, struct iet_cache_page *page, 
 		gfp_t gfp_mask)
 {
@@ -91,10 +90,9 @@ static void del_page_from_radix(struct iet_cache_page *page)
 	spin_unlock_irq(&volume->tree_lock);
 }
 
-/*
-	find the exact page pointer, or return NULL
-*/
-static struct iet_cache_page *find_page_from_radix(struct iet_volume *volume, pgoff_t index){
+/* find the exact page pointer, or return NULL */
+static struct iet_cache_page *find_page_from_radix(struct iet_volume *volume, pgoff_t index)
+{
 	
 	struct iet_cache_page * iet_page;
 	void **pagep;
@@ -125,8 +123,29 @@ out:
 
 }
 
+void add_to_lru_list(struct list_head *list)
+{
+	spin_lock(&lru_lock);
+	list_add_tail(list, &lru);
+	spin_unlock(&lru_lock);
+}
+void update_lru_list(struct list_head *list)
+{
+	spin_lock(&lru_lock);
+	list_del_init(list);
+	list_add_tail(list, &lru);
+	spin_unlock(&lru_lock);
+}
+
+void add_to_wb_list(struct list_head *list)
+{
+	spin_lock(&wb_lock);
+	list_add_tail(list, &wb);
+	spin_unlock(&wb_lock);
+}
 /* the free page is isolated, HAVE NOT list to LRU yet */
-struct iet_cache_page* iet_get_free_page(){
+struct iet_cache_page* iet_get_free_page(void)
+{
 	struct list_head *list, *tmp;
 	struct iet_cache_page *iet_page=NULL;
 	spin_lock(&lru_lock);
@@ -151,8 +170,9 @@ struct iet_cache_page* iet_get_free_page(){
 	return iet_page;
 }
 
-
-static void *memcpy(void *dst,const void *src,size_t num){
+/*
+static void* memcpy(void *dst,const void *src,size_t num)
+{
 	assert((dst != NULL) && (src != NULL));
 	
 	int wordnum = num/4;
@@ -166,11 +186,11 @@ static void *memcpy(void *dst,const void *src,size_t num){
 		*((char *)pintdst++) =*((char *)pintsrc++);	
 	return dst;
 }
+*/
 
-
-
-static int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
-	char bitmap, unsigned int skip_blk, unsigned int bytes){
+int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
+	char bitmap, unsigned int skip_blk, unsigned int bytes)
+{
 	
 	unsigned int blk_num;
 	char *dest, *source;
@@ -193,8 +213,9 @@ static int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page,
 
 
 
-static int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
-	char bitmap, unsigned int skip_blk, unsigned int bytes){
+int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
+	char bitmap, unsigned int skip_blk, unsigned int bytes)
+{
 	
 	unsigned int blk_num;
 	char *dest, *source;
@@ -219,7 +240,8 @@ static int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page,
 ** FIXME!!!
 ** find the correct page if exist, however HAVE NOT checked whether it's dirty	
 */
-int iet_add_page(struct iet_volume *volume,  struct page* page){
+int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page)
+{
 	int error;
 
 	error=add_page_to_radix(volume, iet_page, GFP_KERNEL);
@@ -230,7 +252,8 @@ int iet_add_page(struct iet_volume *volume,  struct page* page){
 	return error;
 }
 
-struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sector){
+struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sector)
+{
 
 	struct iet_cache_page * iet_page;
 	int index = sector >>3;
@@ -240,7 +263,8 @@ struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sec
 	return iet_page;
 }
 
-int iet_del_page(struct iet_cache_page *iet_page){
+int iet_del_page(struct iet_cache_page *iet_page)
+{
 
 	list_del_init(&iet_page->lru_list);
 	list_add(&iet_page->lru_list, &lru);
@@ -254,12 +278,19 @@ int iet_del_page(struct iet_cache_page *iet_page){
 	return 0;
 }
 
-static int iet_page_init(void){
+static int iet_page_init(void)
+{
 	iet_page_cache = KMEM_CACHE(iet_cache_page, 0);
 	return  iet_page_cache ? 0 : -ENOMEM;
 }
 
-int iet_cache_init(void){
+int wb_thread(void){
+	
+}
+
+
+int iet_cache_init(void)
+{
 	int err = 0;
 	unsigned int i;
 	int iet_page_num;
@@ -298,7 +329,8 @@ int iet_cache_init(void){
 	return err;
 }
 
-int iet_cache_exit(void){
+int iet_cache_exit(void)
+{
 		
 	struct list_head *list, *tmp;
 	struct iet_cache_page *iet_page;

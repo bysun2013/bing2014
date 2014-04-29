@@ -147,10 +147,135 @@ out:
 }
 
 
+
+static int
+blockio_start_rw_block(struct iet_cache_page *iet_page,   int block_index, int rw)
+{
+	struct blockio_data *bio_data = iet_page->volume->private;
+	struct tio_work *tio_work;
+	struct bio *bio = NULL;
+	struct blk_plug plug;
+	
+	unsigned int bytes = 512;
+	int max_pages = 1;
+	int err = 0;
+
+	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
+	if (!tio_work)
+		return -ENOMEM;
+
+	atomic_set(&tio_work->error, 0);
+	atomic_set(&tio_work->bios_remaining, 0);
+	init_completion(&tio_work->tio_complete);
+	
+	/* Main processing loop, allocate and fill all bios */
+	bio = bio_alloc(GFP_KERNEL, max_pages);
+	if (!bio) {
+		err = -ENOMEM;
+		goto out;
+	}
+
+	/* bi_sector is ALWAYS in units of 512 bytes */
+	bio->bi_sector = iet_page->index+block_index;
+	bio->bi_bdev = bio_data->bdev;
+	bio->bi_end_io = blockio_bio_endio;
+	bio->bi_private = tio_work;
+
+	atomic_inc(&tio_work->bios_remaining);
+
+	if (!bio_add_page(bio, iet_page->page, bytes, 0)){
+		err = -ENOMEM;
+		goto out;
+	}	
+
+	blk_start_plug(&plug);
+
+	submit_bio(rw, bio);
+
+	blk_finish_plug(&plug);
+
+	wait_for_completion(&tio_work->tio_complete);
+
+	err = atomic_read(&tio_work->error);
+
+	kfree(tio_work);
+
+	return err;
+out:
+	bio_put(bio);
+
+	kfree(tio_work);
+
+	return err;
+}
+
+
+static int
+blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
+{
+	struct blockio_data *bio_data = iet_page->volume->private;
+	struct tio_work *tio_work;
+	struct bio *bio = NULL;
+	struct blk_plug plug;
+	
+	unsigned int bytes = PAGE_SIZE;
+	int max_pages = 1;
+	int err = 0;
+
+	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
+	if (!tio_work)
+		return -ENOMEM;
+
+	atomic_set(&tio_work->error, 0);
+	atomic_set(&tio_work->bios_remaining, 0);
+	init_completion(&tio_work->tio_complete);
+	
+	/* Main processing loop, allocate and fill all bios */
+	bio = bio_alloc(GFP_KERNEL, min(max_pages, BIO_MAX_PAGES));
+	if (!bio) {
+		err = -ENOMEM;
+		goto out;
+	}
+
+	/* bi_sector is ALWAYS in units of 512 bytes */
+	bio->bi_sector = iet_page->index;
+	bio->bi_bdev = bio_data->bdev;
+	bio->bi_end_io = blockio_bio_endio;
+	bio->bi_private = tio_work;
+
+	atomic_inc(&tio_work->bios_remaining);
+
+	if (!bio_add_page(bio, iet_page->page, bytes, 0)){
+		err = -ENOMEM;
+		goto out;
+	}	
+
+	blk_start_plug(&plug);
+
+	submit_bio(rw, bio);
+
+	blk_finish_plug(&plug);
+
+	wait_for_completion(&tio_work->tio_complete);
+
+	err = atomic_read(&tio_work->error);
+
+	kfree(tio_work);
+
+	return err;
+out:
+	bio_put(bio);
+
+	kfree(tio_work);
+
+	return err;
+}
+
+
+
 static int
 blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 {
-	struct blockio_data *bio_data = volume->private;
 	struct iet_cache_page *iet_page;
 	
 	u32 size = tio->size;
@@ -195,25 +320,17 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 					iet_page->index=alba;
 					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
 					iet_add_page(volume, iet_page);
-					spin_lock(&lru);
-					list_add_tail(iet_page->lru_list, &lru);
-					spin_unlock(&lru);
-					spin_lock(&wb);
-					list_add_tail(iet_page->wb_list, &wb);
-					spin_unlock(&wb);
+					add_to_lru_list(&iet_page->lru_list);
+					add_to_wb_list(&iet_page->wb_list);
 					printk(KERN_ALERT"WRITE MISS\n");
 				}else{	/* Write Hit */
-					
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |= bitmap;
 					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
-					spin_lock(&lru);
-					list_del(iet_page->lru_list);
-					list_add_tail(iet_page->lru_list, &lru);
-					spin_unlock(&lru);
-					spin_lock(&wb);
-					list_add_tail(iet_page->wb_list, &wb);
-					spin_unlock(&wb);
+
+					update_lru_list(&iet_page->lru_list);
+					add_to_wb_list(&iet_page->wb_list);
+
 					printk(KERN_ALERT"WRITE HIT\n");
 				}
 				bytes-=current_bytes;
@@ -228,12 +345,9 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 	return err;
 }
 
-
-
 static int
 blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 {
-	struct blockio_data *bio_data = volume->private;
 	struct iet_cache_page *iet_page;
 	
 	u32 size = tio->size;
@@ -257,7 +371,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 				lba=ppos>>9;
 				alba=(lba>>3)<<3;
 				lba_off=lba-alba;
-				
+
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;
@@ -265,47 +379,60 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 				bitmap=get_bitmap(lba, sector_num);
 				iet_page= iet_find_get_page(volume, lba);
 				
+				
 				if(iet_page && (iet_page->valid_bitmap & bitmap)){	/* Read Hit */
-					
 					//atomic_inc(&iet_page->count);
-
 					copy_page_to_tio(iet_page, tio->pvec[tio_index], bitmap, skip_blk, current_bytes);
-					iet_add_page(volume, iet_page);
-					spin_lock(&lru);
-					list_add_tail(iet_page->lru_list, &lru);
-					spin_unlock(&lru);
-					spin_lock(&wb);
-					list_add_tail(iet_page->wb_list, &wb);
-					spin_unlock(&wb);
-					printk(KERN_ALERT"READ MISS\n");
-				}else if(!iet_page){	/* Read Miss */
-					
-					iet_page->valid_bitmap |= bitmap;
-					iet_page->dirty_bitmap |= bitmap;
-					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
-					spin_lock(&lru);
-					list_del(iet_page->lru_list);
-					list_add_tail(iet_page->lru_list, &lru);
-					spin_unlock(&lru);
-					spin_lock(&wb);
-					list_add_tail(iet_page->wb_list, &wb);
-					spin_unlock(&wb);
+					update_lru_list(&iet_page->lru_list);
+
 					printk(KERN_ALERT"READ HIT\n");
-				}else if( (iet_page->valid_bitmap & bitmap)==0){
-					
 				}
+
+				if(!iet_page){	/* Read Miss, no page */
+					iet_page=iet_get_free_page();
+					if(!iet_page){
+				                    err = -ENOMEM;
+				                    return err;
+					}
+					//atomic_inc(&iet_page->count);
+					iet_page->volume=volume;
+					iet_page->dirty_bitmap =0x00;
+					iet_page->valid_bitmap =0x00;
+					iet_page->index=alba;
+					blockio_start_rw_page(iet_page, READ);
+					iet_page->valid_bitmap =0xff;
+					
+					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
+					iet_add_page(volume, iet_page);
+					add_to_lru_list(&iet_page->lru_list);
+
+					printk(KERN_ALERT"READ MISS, no page\n");	
+				}
+				/*
+				else if( (iet_page->valid_bitmap & bitmap)==0){
+					// may be wrong,  i don't know it's in the right position.
+					int i;
+					for(i=0;i<8;i++){
+						if((iet_page->valid_bitmap & (1<<i))==0 && (bitmap & (1<<i))==1)
+							blockio_start_rw_block(iet_page, i, READ);
+					}
+					iet_page->valid_bitmap |= bitmap;
+					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
+					update_lru_list(&iet_page->lru_list);
+
+					printk(KERN_ALERT"READ MISS, no block\n");
+				}
+				*/
 				bytes-=current_bytes;
 				size -=current_bytes;
 				skip_blk+=sector_num;
 				ppos+=current_bytes;
 			}
-			
 			tio_index++;
 	}
 
 	return err;
 }
-
 
 static int
 blockio_open_path(struct iet_volume *volume, const char *path)
