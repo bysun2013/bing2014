@@ -221,17 +221,16 @@ blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
 	unsigned int bytes = PAGE_SIZE;
 	int max_pages = 1;
 	int err = 0;
-
+printk(KERN_INFO"Begin rw page.\n");
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
 	if (!tio_work)
 		return -ENOMEM;
-
 	atomic_set(&tio_work->error, 0);
 	atomic_set(&tio_work->bios_remaining, 0);
 	init_completion(&tio_work->tio_complete);
 	
 	/* Main processing loop, allocate and fill all bios */
-	bio = bio_alloc(GFP_KERNEL, min(max_pages, BIO_MAX_PAGES));
+	bio = bio_alloc(GFP_KERNEL, max_pages);
 	if (!bio) {
 		err = -ENOMEM;
 		goto out;
@@ -244,23 +243,27 @@ blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
 	bio->bi_private = tio_work;
 
 	atomic_inc(&tio_work->bios_remaining);
-
 	if (!bio_add_page(bio, iet_page->page, bytes, 0)){
 		err = -ENOMEM;
 		goto out;
-	}	
+	}
 
+printk(KERN_INFO"Begin rw page 12.\n");
 	blk_start_plug(&plug);
 
 	submit_bio(rw, bio);
+printk(KERN_INFO"Begin rw page 13.\n");
 
 	blk_finish_plug(&plug);
+printk(KERN_INFO"Begin rw page 14.\n");
 
 	wait_for_completion(&tio_work->tio_complete);
+printk(KERN_INFO"Begin rw page 15.\n");
 
 	err = atomic_read(&tio_work->error);
 
 	kfree(tio_work);
+printk(KERN_INFO"end rw page.\n");
 
 	return err;
 out:
@@ -270,8 +273,6 @@ out:
 
 	return err;
 }
-
-
 
 static int
 blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
@@ -286,7 +287,7 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 	loff_t ppos = tio->offset;
 	sector_t lba, alba, lba_off;
 	assert(ppos%512==0);
-
+printk(KERN_INFO"begin write.\n");
 	/* Main processing loop */
 	while (size && tio_index < tio->pg_cnt) {
 			unsigned int bytes = PAGE_SIZE;
@@ -313,7 +314,7 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 				                    err = -ENOMEM;
 				                    return err;				
 					}
-					//atomic_inc(&iet_page->count);
+//					atomic_inc(&iet_page->count);
 					iet_page->volume=volume;
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |=bitmap;
@@ -341,7 +342,7 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 			
 			tio_index++;
 	}
-
+printk(KERN_INFO"end write.\n");
 	return err;
 }
 
@@ -359,6 +360,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 	sector_t lba, alba, lba_off;
 	assert(ppos%512==0);
 
+printk(KERN_INFO"begin read.\n");
 	/* Main processing loop */
 	while (size && tio_index < tio->pg_cnt) {
 			unsigned int bytes = PAGE_SIZE;
@@ -371,13 +373,13 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 				lba=ppos>>9;
 				alba=(lba>>3)<<3;
 				lba_off=lba-alba;
-
+printk(KERN_INFO"ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;
 				sector_num=(current_bytes+512-1)>>9;
 				bitmap=get_bitmap(lba, sector_num);
-				iet_page= iet_find_get_page(volume, lba);
+				iet_page= iet_find_get_page(volume, alba);
 				
 				
 				if(iet_page && (iet_page->valid_bitmap & bitmap)){	/* Read Hit */
@@ -408,6 +410,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 
 					printk(KERN_ALERT"READ MISS, no page\n");	
 				}
+				assert(iet_page && (iet_page->valid_bitmap & bitmap));
 				/*
 				else if( (iet_page->valid_bitmap & bitmap)==0){
 					// may be wrong,  i don't know it's in the right position.
@@ -431,7 +434,25 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 			tio_index++;
 	}
 
+printk(KERN_INFO"end read.\n");
 	return err;
+}
+
+int writeback_thread(void *args){
+	struct iet_cache_page *iet_page;
+printk(KERN_INFO"begin write back.\n");
+	do{
+		__set_current_state(TASK_RUNNING);
+		while((iet_page=get_wb_page())){
+			blockio_start_rw_page(iet_page, WRITE);
+			iet_page->dirty_bitmap=0x00;
+		}
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(5*HZ);
+		__set_current_state(TASK_RUNNING);
+	}while(!kthread_should_stop());
+printk(KERN_INFO"end write back.\n");
+	return 0;
 }
 
 static int

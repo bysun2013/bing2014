@@ -25,7 +25,9 @@
 
 /* param of reserved memory at boot*/
 
-static int  iet_mem_start = 930, iet_mem_size = 30;
+static int  iet_mem_start = 900, iet_mem_size = 60;
+
+static struct task_struct *iet_wb_thread;
 
 module_param(iet_mem_start, int, S_IRUGO|S_IWUSR);
 module_param(iet_mem_size, int, S_IRUGO|S_IWUSR);
@@ -91,7 +93,7 @@ static void del_page_from_radix(struct iet_cache_page *page)
 }
 
 /* find the exact page pointer, or return NULL */
-static struct iet_cache_page *find_page_from_radix(struct iet_volume *volume, pgoff_t index)
+static struct iet_cache_page *find_page_from_radix(struct iet_volume *volume, sector_t index)
 {
 	
 	struct iet_cache_page * iet_page;
@@ -143,6 +145,21 @@ void add_to_wb_list(struct list_head *list)
 	list_add_tail(list, &wb);
 	spin_unlock(&wb_lock);
 }
+
+struct iet_cache_page* get_wb_page(void)
+{
+	struct list_head *list=NULL;
+	spin_lock(&wb_lock);
+	if(!list_empty(&wb)){
+		list=wb.next;
+		list_del_init(list);
+		spin_unlock(&wb_lock);
+		return (list_entry(list, struct iet_cache_page,  wb_list));
+	}
+	spin_unlock(&wb_lock);
+	return NULL;
+}
+
 /* the free page is isolated, HAVE NOT list to LRU yet */
 struct iet_cache_page* iet_get_free_page(void)
 {
@@ -170,24 +187,6 @@ struct iet_cache_page* iet_get_free_page(void)
 	return iet_page;
 }
 
-/*
-static void* memcpy(void *dst,const void *src,size_t num)
-{
-	assert((dst != NULL) && (src != NULL));
-	
-	int wordnum = num/4;
-	int slice = num%4;
-	u32 * pintsrc = (int *)src;	
-	u32 * pintdst = (int *)dst;
-	
-	while(wordnum--)
-		*pintdst++ = *pintsrc++;	
-	while (slice--)
-		*((char *)pintdst++) =*((char *)pintsrc++);	
-	return dst;
-}
-*/
-
 int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
@@ -210,8 +209,6 @@ int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page,
 //	printk(KERN_ALERT"this is done. copy to cache from tio \n");
 	return 0;
 }
-
-
 
 int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
@@ -252,11 +249,10 @@ int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page)
 	return error;
 }
 
-struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sector)
+struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t index)
 {
 
 	struct iet_cache_page * iet_page;
-	int index = sector >>3;
 
 	iet_page = find_page_from_radix(volume, index);
 	
@@ -265,15 +261,16 @@ struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sec
 
 int iet_del_page(struct iet_cache_page *iet_page)
 {
-
+	spin_lock(&lru_lock);
 	list_del_init(&iet_page->lru_list);
 	list_add(&iet_page->lru_list, &lru);
-		
+	spin_unlock(&lru_lock);
+	
 	del_page_from_radix(iet_page);
 	iet_page->volume=NULL;
 
 	/*we assume only we use the page frame*/
-	atomic_dec(&iet_page->count);
+//	atomic_dec(&iet_page->count);
 	
 	return 0;
 }
@@ -283,11 +280,6 @@ static int iet_page_init(void)
 	iet_page_cache = KMEM_CACHE(iet_cache_page, 0);
 	return  iet_page_cache ? 0 : -ENOMEM;
 }
-
-int wb_thread(void){
-	
-}
-
 
 int iet_cache_init(void)
 {
@@ -312,18 +304,20 @@ int iet_cache_init(void)
 	INIT_LIST_HEAD(&wb);
 	spin_lock_init(&lru_lock);
 	spin_lock_init(&wb_lock);
-
+	iet_wb_thread=kthread_run(writeback_thread, NULL, "iet_wb_thread");
+	
 	iet_page_num = (iet_mem_size*1024*1024)/PAGE_SIZE;
-
+	
 	tmp_addr = reserve_virt_addr;
 	for(i=0;i<iet_page_num;i++){
-		struct iet_cache_page *iet_cache;
-		struct page *cache_page;
-		cache_page = virt_to_page(tmp_addr);
-		iet_cache=kmem_cache_alloc(iet_page_cache, GFP_KERNEL);
-		list_add(&iet_cache->lru_list, &lru);
-		atomic_set(&iet_cache->count, 0);
-		iet_cache->page=cache_page;
+		struct iet_cache_page *iet_page;
+		struct page *page;
+		page = virt_to_page(tmp_addr);
+		iet_page=kmem_cache_alloc(iet_page_cache, GFP_KERNEL);
+		list_add(&iet_page->lru_list, &lru);
+		INIT_LIST_HEAD(&iet_page->wb_list);
+		atomic_set(&iet_page->count, 0);
+		iet_page->page=page;
 		tmp_addr = tmp_addr+ PAGE_SIZE;
 	}
 	return err;
@@ -340,7 +334,7 @@ int iet_cache_exit(void)
 		list_del_init(list);
 		kmem_cache_free(iet_page_cache, iet_page);
 	}
-
+	kthread_stop(iet_wb_thread);
 	kmem_cache_destroy(iet_page_cache);
 	
 	/*unmap reserved physical memory */

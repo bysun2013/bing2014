@@ -7,9 +7,8 @@
 #ifndef ISCSI_CACHE_H
 #define ISCSI_CACHE_H
 
+#include <linux/kthread.h>
 #include "iscsi.h"
-
-extern int iet_page_num;
 
 struct iet_cache_page{
 	struct iet_volume *volume;
@@ -28,21 +27,22 @@ struct iet_cache_page{
 char get_bitmap(sector_t lba, u32 num);
 void add_to_lru_list(struct list_head *list);
 void update_lru_list(struct list_head *list);
-void add_to_wb_list(struct list_head *list);
-
 struct iet_cache_page* iet_get_free_page(void);
+
+void add_to_wb_list(struct list_head *list);
+struct iet_cache_page* get_wb_page(void);
+
 int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes);
 int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes);
+
 int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page);
 int iet_del_page(struct iet_cache_page *iet_page);
-
 struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sector);
 
 
-
-
+int writeback_thread(void *args);
 
 int iet_cache_init(void);
 
