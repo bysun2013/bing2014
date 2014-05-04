@@ -221,7 +221,7 @@ blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
 	unsigned int bytes = PAGE_SIZE;
 	int max_pages = 1;
 	int err = 0;
-printk(KERN_INFO"Begin rw page.\n");
+//printk(KERN_INFO"Begin rw page.\n");
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
 	if (!tio_work)
 		return -ENOMEM;
@@ -248,22 +248,22 @@ printk(KERN_INFO"Begin rw page.\n");
 		goto out;
 	}
 
-printk(KERN_INFO"Begin rw page 12.\n");
+//printk(KERN_INFO"Begin rw page 12.\n");
 	blk_start_plug(&plug);
 
 	submit_bio(rw, bio);
-printk(KERN_INFO"Begin rw page 13.\n");
+//printk(KERN_INFO"Begin rw page 13.\n");
 
 	blk_finish_plug(&plug);
-printk(KERN_INFO"Begin rw page 14.\n");
+//printk(KERN_INFO"Begin rw page 14.\n");
 
 	wait_for_completion(&tio_work->tio_complete);
-printk(KERN_INFO"Begin rw page 15.\n");
+//printk(KERN_INFO"Begin rw page 15.\n");
 
 	err = atomic_read(&tio_work->error);
 
 	kfree(tio_work);
-printk(KERN_INFO"end rw page.\n");
+//printk(KERN_INFO"end rw page.\n");
 
 	return err;
 out:
@@ -360,7 +360,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 	sector_t lba, alba, lba_off;
 	assert(ppos%512==0);
 
-printk(KERN_INFO"begin read.\n");
+//printk(KERN_INFO"begin read.\n");
 	/* Main processing loop */
 	while (size && tio_index < tio->pg_cnt) {
 			unsigned int bytes = PAGE_SIZE;
@@ -373,14 +373,13 @@ printk(KERN_INFO"begin read.\n");
 				lba=ppos>>9;
 				alba=(lba>>3)<<3;
 				lba_off=lba-alba;
-printk(KERN_INFO"ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
+printk(KERN_INFO"READ ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;
 				sector_num=(current_bytes+512-1)>>9;
 				bitmap=get_bitmap(lba, sector_num);
 				iet_page= iet_find_get_page(volume, alba);
-				
 				
 				if(iet_page && (iet_page->valid_bitmap & bitmap)){	/* Read Hit */
 					//atomic_inc(&iet_page->count);
@@ -396,7 +395,7 @@ printk(KERN_INFO"ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 				                    err = -ENOMEM;
 				                    return err;
 					}
-					//atomic_inc(&iet_page->count);
+					
 					iet_page->volume=volume;
 					iet_page->dirty_bitmap =0x00;
 					iet_page->valid_bitmap =0x00;
@@ -404,7 +403,7 @@ printk(KERN_INFO"ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 					blockio_start_rw_page(iet_page, READ);
 					iet_page->valid_bitmap =0xff;
 					
-					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
+					copy_page_to_tio(iet_page, tio->pvec[tio_index],  bitmap, skip_blk, current_bytes);
 					iet_add_page(volume, iet_page);
 					add_to_lru_list(&iet_page->lru_list);
 
@@ -434,7 +433,7 @@ printk(KERN_INFO"ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 			tio_index++;
 	}
 
-printk(KERN_INFO"end read.\n");
+//printk(KERN_INFO"end read.\n");
 	return err;
 }
 
@@ -448,7 +447,7 @@ printk(KERN_INFO"begin write back.\n");
 			iet_page->dirty_bitmap=0x00;
 		}
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(5*HZ);
+		schedule_timeout(1*HZ);
 		__set_current_state(TASK_RUNNING);
 	}while(!kthread_should_stop());
 printk(KERN_INFO"end write back.\n");

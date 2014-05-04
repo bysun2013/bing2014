@@ -26,7 +26,7 @@ static void event_recv_skb(struct sk_buff *skb)
 		rlen = NLMSG_ALIGN(nlh->nlmsg_len);
 		if (rlen > skb->len)
 			rlen = skb->len;
-		ietd_pid = NETLINK_CB(skb).pid;
+		ietd_pid = NETLINK_CB(skb).portid;
 		WARN_ON(ietd_pid == 0);
 		if (nlh->nlmsg_flags & NLM_F_ACK)
 			netlink_ack(skb, nlh, 0);
@@ -69,8 +69,16 @@ int event_send(u32 tid, u64 sid, u32 cid, u32 state, int atomic)
 
 int event_init(void)
 {
-	nl = netlink_kernel_create(&init_net, NETLINK_IET, 1, event_recv_skb,
-				   NULL, THIS_MODULE);
+	struct netlink_kernel_cfg cfg = {
+		.groups = 1,
+		.input = event_recv_skb,
+		.cb_mutex = NULL,
+		.bind = NULL,
+	};
+
+	nl = netlink_kernel_create(&init_net,
+				   NETLINK_IET,
+				   &cfg);
 	if (!nl)
 		return -ENOMEM;
 	else

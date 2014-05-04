@@ -111,7 +111,7 @@ repeat:
 		if (unlikely(iet_page != *pagep)) {
 			
 		}
-		printk(KERN_ALERT"iet_cache_find: success find the exact page frame.\n");
+//		printk(KERN_ALERT"iet_cache_find: success find the exact page frame.\n");
 	}
 out:
 	rcu_read_unlock();
@@ -164,7 +164,7 @@ struct iet_cache_page* iet_get_free_page(void)
 	
 	list_for_each_safe(list, tmp, &lru){
 		iet_page=list_entry(list, struct iet_cache_page, lru_list);
-		assert(iet_page);
+		assert(iet_page != NULL);
 		if(atomic_read(&iet_page->count) == 0){
 			list_del_init(list);
 //			printk(KERN_ALERT"iet_cache_add: find a free iet_cache_page for use.\n");
@@ -173,7 +173,7 @@ struct iet_cache_page* iet_get_free_page(void)
 		iet_page=NULL;
 	}
 	spin_unlock(&lru_lock);
-/*	
+/*
 	if(list==&lru){
 		printk(KERN_ERR"BUG at %s:%d : iet cache page is used up! \n", __FILE__, __LINE__);
 		BUG();
@@ -228,10 +228,6 @@ int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page,
 	return 0;
 }
 
-/* 
-** FIXME!!!
-** find the correct page if exist, however HAVE NOT checked whether it's dirty	
-*/
 int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page)
 {
 	int error;
@@ -265,7 +261,7 @@ int iet_del_page(struct iet_cache_page *iet_page)
 	iet_page->volume=NULL;
 
 	/*we assume only we use the page frame*/
-//	atomic_dec(&iet_page->count);
+	atomic_set(&iet_page->count, 0);
 	
 	return 0;
 }
@@ -297,7 +293,7 @@ int iet_cache_init(void)
 	spin_lock_init(&wb_lock);
 	iet_wb_thread=kthread_run(writeback_thread, NULL, "iet_wb_thread");
 	
-	iet_page_num = (iet_mem_size*1024*1024)/PAGE_SIZE;
+	iet_page_num = (iet_mem_size)/PAGE_SIZE;
 	
 	tmp_addr = iet_mem_virt;
 	for(i=0;i<iet_page_num;i++){
@@ -305,7 +301,7 @@ int iet_cache_init(void)
 		struct page *page;
 		page = virt_to_page(tmp_addr);
 		iet_page=kmem_cache_alloc(iet_page_cache, GFP_KERNEL);
-		list_add(&iet_page->lru_list, &lru);
+		list_add_tail(&iet_page->lru_list, &lru);
 		INIT_LIST_HEAD(&iet_page->wb_list);
 		atomic_set(&iet_page->count, 0);
 		iet_page->page=page;
@@ -328,9 +324,10 @@ int iet_cache_exit(void)
 	kthread_stop(iet_wb_thread);
 	kmem_cache_destroy(iet_page_cache);
 	
-	/*unmap reserved physical memory */
-	if (reserve_virt_addr)
-		iounmap(reserve_virt_addr);
-	
+/*	unmap reserved physical memory 
+	if (iet_mem_virt)
+		iounmap(iet_mem_virt);
+*/
+
 	return 0;
 }
