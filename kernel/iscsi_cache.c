@@ -24,15 +24,10 @@
 
 
 /* param of reserved memory at boot*/
-
-static int  iet_mem_start = 900, iet_mem_size = 60;
+extern unsigned int iet_mem_size;
+extern char *iet_mem_virt;
 
 static struct task_struct *iet_wb_thread;
-
-module_param(iet_mem_start, int, S_IRUGO|S_IWUSR);
-module_param(iet_mem_size, int, S_IRUGO|S_IWUSR);
-
-static char *reserve_virt_addr;
 
 static struct kmem_cache *iet_page_cache;
 
@@ -288,14 +283,10 @@ int iet_cache_init(void)
 	int iet_page_num;
 	phys_addr_t reserve_phys_addr;
 	char *tmp_addr;
-	
-	/*map reserved physical memory into kernel region*/
-	if((reserve_virt_addr = ioremap(iet_mem_start *1024 * 1024, iet_mem_size *1024 * 1024)) == NULL)
-		return -1;
 
-	reserve_phys_addr=virt_to_phys(reserve_virt_addr);
+	reserve_phys_addr=virt_to_phys(iet_mem_virt);
 	printk(KERN_ALERT"reserve_virt_addr = 0x%lx reserve_phys_addr = 0x%lx \n", 
-		(unsigned long)reserve_virt_addr, (unsigned long)reserve_phys_addr);
+		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr);
 
 	if((err=iet_page_init())< 0)
 		return err;
@@ -308,7 +299,7 @@ int iet_cache_init(void)
 	
 	iet_page_num = (iet_mem_size*1024*1024)/PAGE_SIZE;
 	
-	tmp_addr = reserve_virt_addr;
+	tmp_addr = iet_mem_virt;
 	for(i=0;i<iet_page_num;i++){
 		struct iet_cache_page *iet_page;
 		struct page *page;
