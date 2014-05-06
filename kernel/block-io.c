@@ -268,6 +268,7 @@ blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
 	return err;
 out:
 	bio_put(bio);
+printk(KERN_ALERT"ERROR rw page.\n");
 
 	kfree(tio_work);
 
@@ -287,7 +288,7 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 	loff_t ppos = tio->offset;
 	sector_t lba, alba, lba_off;
 	assert(ppos%512==0);
-printk(KERN_INFO"begin write.\n");
+printk(KERN_ALERT"begin write.\n");
 	/* Main processing loop */
 	while (size && tio_index < tio->pg_cnt) {
 			unsigned int bytes = PAGE_SIZE;
@@ -307,28 +308,38 @@ printk(KERN_INFO"begin write.\n");
 				sector_num=(current_bytes+512-1)>>9;
 				bitmap=get_bitmap(lba, sector_num);
 				iet_page= iet_find_get_page(volume, lba);
-				
+printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 				if(iet_page == NULL){	/* Write Miss */
 					iet_page=iet_get_free_page();
 					if(!iet_page){
 				                    err = -ENOMEM;
-				                    return err;				
+				                    return err;
 					}
-//					atomic_inc(&iet_page->count);
 					iet_page->volume=volume;
+					iet_page->index=alba;
+					
+					spin_lock(&iet_page->lock);
+					iet_add_page(volume, iet_page);
+					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |=bitmap;
-					iet_page->index=alba;
-					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
-					iet_add_page(volume, iet_page);
+//printk(KERN_ALERT"WRITE prepare unlock page lock.\n");
+					spin_unlock(&iet_page->lock);
+//printk(KERN_ALERT"WRITE unlocked page lock.\n");
+					
+//printk(KERN_ALERT"WRITE begin add to LRU.\n");	
 					add_to_lru_list(&iet_page->lru_list);
+//printk(KERN_ALERT"WRITE begin add to WB.\n");	
 					add_to_wb_list(&iet_page->wb_list);
+				
 					printk(KERN_ALERT"WRITE MISS\n");
-				}else{	/* Write Hit */
+				}else{		/* Write Hit */
+					spin_lock(&iet_page->lock);
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |= bitmap;
 					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
-
+					spin_unlock(&iet_page->lock);
+					
 					update_lru_list(&iet_page->lru_list);
 					add_to_wb_list(&iet_page->wb_list);
 
@@ -342,7 +353,7 @@ printk(KERN_INFO"begin write.\n");
 			
 			tio_index++;
 	}
-printk(KERN_INFO"end write.\n");
+printk(KERN_ALERT"end write.\n");
 	return err;
 }
 
@@ -360,7 +371,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 	sector_t lba, alba, lba_off;
 	assert(ppos%512==0);
 
-//printk(KERN_INFO"begin read.\n");
+//printk(KERN_ALERT"begin read.\n");
 	/* Main processing loop */
 	while (size && tio_index < tio->pg_cnt) {
 			unsigned int bytes = PAGE_SIZE;
@@ -373,7 +384,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 				lba=ppos>>9;
 				alba=(lba>>3)<<3;
 				lba_off=lba-alba;
-printk(KERN_INFO"READ ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
+printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;
@@ -381,32 +392,40 @@ printk(KERN_INFO"READ ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 				bitmap=get_bitmap(lba, sector_num);
 				iet_page= iet_find_get_page(volume, alba);
 				
-				if(iet_page && (iet_page->valid_bitmap & bitmap)){	/* Read Hit */
-					//atomic_inc(&iet_page->count);
-					copy_page_to_tio(iet_page, tio->pvec[tio_index], bitmap, skip_blk, current_bytes);
+				if(iet_page){	/* Read Hit */
+					spin_lock(&iet_page->lock);
+					assert(iet_page->valid_bitmap & bitmap);
+					copy_page_to_tio(iet_page, tio->pvec[tio_index], bitmap, skip_blk, current_bytes);					
+					spin_unlock(&iet_page->lock);
+					
 					update_lru_list(&iet_page->lru_list);
-
-					printk(KERN_ALERT"READ HIT\n");
+					printk(KERN_ALERT"READ HIT\n");	
 				}
 
 				if(!iet_page){	/* Read Miss, no page */
 					iet_page=iet_get_free_page();
 					if(!iet_page){
-				                    err = -ENOMEM;
-				                    return err;
+				                	err = -ENOMEM;
+						printk(KERN_ALERT"ERROR IN GET NEW PAGE.\n");
+				                  return err;
 					}
-					
 					iet_page->volume=volume;
 					iet_page->dirty_bitmap =0x00;
 					iet_page->valid_bitmap =0x00;
 					iet_page->index=alba;
-					blockio_start_rw_page(iet_page, READ);
-					iet_page->valid_bitmap =0xff;
-					
-					copy_page_to_tio(iet_page, tio->pvec[tio_index],  bitmap, skip_blk, current_bytes);
-					iet_add_page(volume, iet_page);
-					add_to_lru_list(&iet_page->lru_list);
 
+					spin_lock(&iet_page->lock);
+					/* Be careful, first page lock ,then radix tree lock */
+					iet_add_page(volume, iet_page);
+					if((iet_page->valid_bitmap & 0xff)==0){
+						blockio_start_rw_page(iet_page, READ);
+						iet_page->valid_bitmap =0xff;
+						copy_page_to_tio(iet_page, tio->pvec[tio_index],  bitmap, skip_blk, current_bytes);	
+					}
+					spin_unlock(&iet_page->lock);
+					
+					add_to_lru_list(&iet_page->lru_list);
+					
 					printk(KERN_ALERT"READ MISS, no page\n");	
 				}
 				assert(iet_page && (iet_page->valid_bitmap & bitmap));
@@ -433,24 +452,27 @@ printk(KERN_INFO"READ ppos=%lld, LBA=%llu, aLBA=%llu", ppos, lba, alba);
 			tio_index++;
 	}
 
-//printk(KERN_INFO"end read.\n");
+//printk(KERN_ALERT"end read.\n");
 	return err;
 }
 
 int writeback_thread(void *args){
-	struct iet_cache_page *iet_page;
-printk(KERN_INFO"begin write back.\n");
+	struct iet_cache_page *iet_page=NULL;
+
 	do{
-		__set_current_state(TASK_RUNNING);
 		while((iet_page=get_wb_page())){
+			spin_lock(&iet_page->lock);
+			printk(KERN_ALERT"write back one page. sector is %llu\n", (unsigned long long)iet_page->index);
 			blockio_start_rw_page(iet_page, WRITE);
 			iet_page->dirty_bitmap=0x00;
+			spin_unlock(&iet_page->lock);
+			update_lru_list(&iet_page->lru_list);
 		}
-		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(1*HZ);
-		__set_current_state(TASK_RUNNING);
+//printk(KERN_ALERT"end write back.\n");
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		schedule_timeout(2*HZ);
 	}while(!kthread_should_stop());
-printk(KERN_INFO"end write back.\n");
+
 	return 0;
 }
 

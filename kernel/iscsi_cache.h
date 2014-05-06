@@ -13,7 +13,7 @@
 struct iet_cache_page{
 	struct iet_volume *volume;
 	struct page *page;
-	pgoff_t	index;
+	sector_t	index;
 
 	/* block is 512 Byte, and page is 4KB */
 	char valid_bitmap;
@@ -21,7 +21,7 @@ struct iet_cache_page{
 	
 	struct list_head wb_list;
 	struct list_head lru_list;
-	atomic_t count;
+	atomic_t read_count;
 	spinlock_t lock;
 };
 char get_bitmap(sector_t lba, u32 num);
@@ -43,6 +43,8 @@ struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sec
 
 
 int writeback_thread(void *args);
+int wakeup_writeback(void);
+
 
 int iet_cache_init(void);
 

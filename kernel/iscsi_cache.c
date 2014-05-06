@@ -109,7 +109,8 @@ repeat:
 		 * Has the page moved?
 		 */
 		if (unlikely(iet_page != *pagep)) {
-			
+			printk(KERN_ALERT"Has the page moved.\n");
+			BUG();
 		}
 //		printk(KERN_ALERT"iet_cache_find: success find the exact page frame.\n");
 	}
@@ -155,7 +156,7 @@ struct iet_cache_page* get_wb_page(void)
 	return NULL;
 }
 
-/* the free page is isolated, HAVE NOT list to LRU yet */
+/* the free page is isolated, NOT list to LRU */
 struct iet_cache_page* iet_get_free_page(void)
 {
 	struct list_head *list, *tmp;
@@ -165,20 +166,25 @@ struct iet_cache_page* iet_get_free_page(void)
 	list_for_each_safe(list, tmp, &lru){
 		iet_page=list_entry(list, struct iet_cache_page, lru_list);
 		assert(iet_page != NULL);
-		if(atomic_read(&iet_page->count) == 0){
+		if((iet_page->dirty_bitmap & 0xff) == 0){
 			list_del_init(list);
+			iet_page->valid_bitmap=0x00;
 //			printk(KERN_ALERT"iet_cache_add: find a free iet_cache_page for use.\n");
 			break;
 		}
 		iet_page=NULL;
 	}
 	spin_unlock(&lru_lock);
-/*
-	if(list==&lru){
+
+	if(iet_page==NULL){
 		printk(KERN_ERR"BUG at %s:%d : iet cache page is used up! \n", __FILE__, __LINE__);
 		BUG();
 	}
-*/
+	if(iet_page->volume){
+		del_page_from_radix(iet_page);
+		iet_page->volume=NULL;
+	}
+	
 	return iet_page;
 }
 
@@ -195,12 +201,12 @@ int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page,
 	
 	dest+=(skip_blk<<9);
 	blk_num=(bytes+512)>>9;
-	spin_lock(&iet_page->lock);
+//	spin_lock(&iet_page->lock);
 //	printk(KERN_ALERT"this is beginning. copy to cache from tio \n");
 	for(i=0;i<blk_num;i++){
 		memcpy(dest, source, 512);
 	}
-	spin_unlock(&iet_page->lock);
+//	spin_unlock(&iet_page->lock);
 //	printk(KERN_ALERT"this is done. copy to cache from tio \n");
 	return 0;
 }
@@ -218,12 +224,12 @@ int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page,
 	
 	dest+=(skip_blk<<9);
 	blk_num=(bytes+512)>>9;
-	spin_lock(&iet_page->lock);
+//	spin_lock(&iet_page->lock);
 //	printk(KERN_ALERT"this is beginning. copy cache page to tio \n");
 	for(i=0;i<blk_num;i++){
 		memcpy(dest, source, 512);
 	}
-	spin_unlock(&iet_page->lock);
+//	spin_unlock(&iet_page->lock);
 //	printk(KERN_ALERT"this is done. copy cache page to tio \n");
 	return 0;
 }
@@ -261,11 +267,15 @@ int iet_del_page(struct iet_cache_page *iet_page)
 	iet_page->volume=NULL;
 
 	/*we assume only we use the page frame*/
-	atomic_set(&iet_page->count, 0);
+//	atomic_set(&iet_page->count, 0);
 	
 	return 0;
 }
 
+int wakeup_writeback(void){
+	wake_up_process(iet_wb_thread);
+	return 0;
+}
 static int iet_page_init(void)
 {
 	iet_page_cache = KMEM_CACHE(iet_cache_page, 0);
@@ -291,7 +301,6 @@ int iet_cache_init(void)
 	INIT_LIST_HEAD(&wb);
 	spin_lock_init(&lru_lock);
 	spin_lock_init(&wb_lock);
-	iet_wb_thread=kthread_run(writeback_thread, NULL, "iet_wb_thread");
 	
 	iet_page_num = (iet_mem_size)/PAGE_SIZE;
 	
@@ -301,12 +310,20 @@ int iet_cache_init(void)
 		struct page *page;
 		page = virt_to_page(tmp_addr);
 		iet_page=kmem_cache_alloc(iet_page_cache, GFP_KERNEL);
-		list_add_tail(&iet_page->lru_list, &lru);
-		INIT_LIST_HEAD(&iet_page->wb_list);
-		atomic_set(&iet_page->count, 0);
+		
 		iet_page->page=page;
+		iet_page->volume=NULL;
+		iet_page->index=-1;
+		iet_page->dirty_bitmap=iet_page->valid_bitmap=0x00;
+		atomic_set(&iet_page->read_count, 0);
+		spin_lock_init(&iet_page->lock);
+		INIT_LIST_HEAD(&iet_page->wb_list);
+		list_add_tail(&iet_page->lru_list, &lru);
+		
 		tmp_addr = tmp_addr+ PAGE_SIZE;
 	}
+	
+	iet_wb_thread=kthread_run(writeback_thread, NULL, "iet_wb_thread");
 	return err;
 }
 
