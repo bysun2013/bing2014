@@ -110,9 +110,8 @@ repeat:
 		 */
 		if (unlikely(iet_page != *pagep)) {
 			printk(KERN_ALERT"Has the page moved.\n");
-			BUG();
+			goto repeat;
 		}
-//		printk(KERN_ALERT"iet_cache_find: success find the exact page frame.\n");
 	}
 out:
 	rcu_read_unlock();
@@ -163,13 +162,14 @@ struct iet_cache_page* iet_get_free_page(void)
 	struct iet_cache_page *iet_page=NULL;
 	spin_lock(&lru_lock);
 	
+printk(KERN_ALERT"find a free page.\n");
+
 	list_for_each_safe(list, tmp, &lru){
 		iet_page=list_entry(list, struct iet_cache_page, lru_list);
 		assert(iet_page != NULL);
 		if((iet_page->dirty_bitmap & 0xff) == 0){
 			list_del_init(list);
 			iet_page->valid_bitmap=0x00;
-//			printk(KERN_ALERT"iet_cache_add: find a free iet_cache_page for use.\n");
 			break;
 		}
 		iet_page=NULL;
@@ -177,14 +177,15 @@ struct iet_cache_page* iet_get_free_page(void)
 	spin_unlock(&lru_lock);
 
 	if(iet_page==NULL){
-		printk(KERN_ERR"BUG at %s:%d : iet cache page is used up! \n", __FILE__, __LINE__);
-		BUG();
+		printk(KERN_ALERT" iet cache page is used up! \n");
+		wakeup_writeback();
 	}
 	if(iet_page->volume){
 		del_page_from_radix(iet_page);
 		iet_page->volume=NULL;
 	}
-	
+printk(KERN_ALERT"success find a free page for use.\n");
+
 	return iet_page;
 }
 
@@ -201,13 +202,10 @@ int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page,
 	
 	dest+=(skip_blk<<9);
 	blk_num=(bytes+512)>>9;
-//	spin_lock(&iet_page->lock);
-//	printk(KERN_ALERT"this is beginning. copy to cache from tio \n");
+
 	for(i=0;i<blk_num;i++){
 		memcpy(dest, source, 512);
 	}
-//	spin_unlock(&iet_page->lock);
-//	printk(KERN_ALERT"this is done. copy to cache from tio \n");
 	return 0;
 }
 
@@ -224,13 +222,10 @@ int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page,
 	
 	dest+=(skip_blk<<9);
 	blk_num=(bytes+512)>>9;
-//	spin_lock(&iet_page->lock);
-//	printk(KERN_ALERT"this is beginning. copy cache page to tio \n");
+
 	for(i=0;i<blk_num;i++){
 		memcpy(dest, source, 512);
 	}
-//	spin_unlock(&iet_page->lock);
-//	printk(KERN_ALERT"this is done. copy cache page to tio \n");
 	return 0;
 }
 
@@ -282,6 +277,7 @@ static int iet_page_init(void)
 	return  iet_page_cache ? 0 : -ENOMEM;
 }
 
+/* if cache block is not used, index equal to -1 */
 int iet_cache_init(void)
 {
 	int err = 0;
@@ -313,7 +309,7 @@ int iet_cache_init(void)
 		
 		iet_page->page=page;
 		iet_page->volume=NULL;
-		iet_page->index=-1;
+		iet_page->index=-1; 
 		iet_page->dirty_bitmap=iet_page->valid_bitmap=0x00;
 		atomic_set(&iet_page->read_count, 0);
 		spin_lock_init(&iet_page->lock);
