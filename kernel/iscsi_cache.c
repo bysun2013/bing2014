@@ -40,13 +40,10 @@ spinlock_t		wb_lock;
 
 
 /* bitmap is 7-0, Notice the sequence of bitmap*/
-char get_bitmap(sector_t lba, u32 num){
-	char bitmap=0;
-	sector_t alba, lba_off;
+char get_bitmap(sector_t lba_off, u32 num){
+	char bitmap=0x00;
 	int i;
 	
-	alba=(lba>>3)<<3;
-	lba_off=lba-alba;
 	assert(lba_off+num<=8);
 	for(i=0;i<num;i++){
 		bitmap= bitmap | (1<<(lba_off+i));
@@ -137,7 +134,8 @@ void update_lru_list(struct list_head *list)
 void add_to_wb_list(struct list_head *list)
 {
 	spin_lock(&wb_lock);
-	list_add_tail(list, &wb);
+	if(list_empty(list))
+		list_add_tail(list, &wb);
 	spin_unlock(&wb_lock);
 }
 
@@ -162,7 +160,7 @@ struct iet_cache_page* iet_get_free_page(void)
 	struct iet_cache_page *iet_page=NULL;
 	spin_lock(&lru_lock);
 	
-printk(KERN_ALERT"find a free page.\n");
+//printk(KERN_ALERT"find a free page.\n");
 
 	list_for_each_safe(list, tmp, &lru){
 		iet_page=list_entry(list, struct iet_cache_page, lru_list);
@@ -177,56 +175,71 @@ printk(KERN_ALERT"find a free page.\n");
 	spin_unlock(&lru_lock);
 
 	if(iet_page==NULL){
-		printk(KERN_ALERT" iet cache page is used up! \n");
+		printk(KERN_ALERT" iet cache page is used up! wake up wb thread.\n");
 		wakeup_writeback();
 	}
 	if(iet_page->volume){
 		del_page_from_radix(iet_page);
 		iet_page->volume=NULL;
 	}
-printk(KERN_ALERT"success find a free page for use.\n");
+//printk(KERN_ALERT"success find a free page for use.\n");
 
 	return iet_page;
 }
 
-int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
+void copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
-	
-	unsigned int blk_num;
 	char *dest, *source;
 	unsigned int i=0;
+	
+	assert(page);
+	assert(iet_page);
+	
+	if(!bitmap)
+		return;
 	
 	dest = page_address(iet_page->page);
 	source = page_address(page);
 	
-	dest+=(skip_blk<<9);
-	blk_num=(bytes+512)>>9;
-
-	for(i=0;i<blk_num;i++){
-		memcpy(dest, source, 512);
+	source+=(skip_blk<<9);
+	
+	for(i=0;i<8;i++){
+		if(bitmap & (0x01<<i)){
+			memcpy(dest, source, 512);
+			source+=512;
+		}
+		dest+=512;
 	}
-	return 0;
+	return;
 }
 
-int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
+void copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
-	
-	unsigned int blk_num;
 	char *dest, *source;
 	unsigned int i=0;
 	
-	source = page_address(iet_page->page);
+	assert(page);
+	assert(iet_page);
+	
+	if(!bitmap)
+		return;
+	
 	dest = page_address(page);
+	source = page_address(iet_page->page);
 	
 	dest+=(skip_blk<<9);
-	blk_num=(bytes+512)>>9;
-
-	for(i=0;i<blk_num;i++){
-		memcpy(dest, source, 512);
+	
+	for(i=0;i<8;i++){
+		if(bitmap & (0x01<<i)){
+			memcpy(dest, source, 512);
+			dest+=512;
+		}
+		source+=512;
 	}
-	return 0;
+	return;
+
 }
 
 int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page)
@@ -307,12 +320,15 @@ int iet_cache_init(void)
 		page = virt_to_page(tmp_addr);
 		iet_page=kmem_cache_alloc(iet_page_cache, GFP_KERNEL);
 		
-		iet_page->page=page;
 		iet_page->volume=NULL;
 		iet_page->index=-1; 
+		
 		iet_page->dirty_bitmap=iet_page->valid_bitmap=0x00;
-		atomic_set(&iet_page->read_count, 0);
-		spin_lock_init(&iet_page->lock);
+		spin_lock_init(&iet_page->bitmap_lock);
+		
+		iet_page->page=page;
+		spin_lock_init(&iet_page->page_lock);
+		iet_page->flag=0;
 		INIT_LIST_HEAD(&iet_page->wb_list);
 		list_add_tail(&iet_page->lru_list, &lru);
 		

@@ -294,8 +294,8 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 //printk(KERN_ALERT"begin write.\n");
 	/* Main processing loop */
 	while (size && tio_index < tio->pg_cnt) {
-			unsigned int bytes = PAGE_SIZE;
-			unsigned int current_bytes, skip_blk=0;
+			unsigned int current_bytes, bytes = PAGE_SIZE;
+			unsigned int  skip_blk=0;
 
 			if (bytes > size)
 				bytes = size;
@@ -309,35 +309,54 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;
-				sector_num=(current_bytes+512-1)>>9;
-				bitmap=get_bitmap(lba, sector_num);
+				sector_num=current_bytes>>9;
+				bitmap=get_bitmap(lba_off, sector_num);
 				iet_page= iet_find_get_page(volume, page_index);
 printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned long)page_index);
 				if(iet_page == NULL){	/* Write Miss */
 					iet_page=iet_get_free_page();
 					if(!iet_page){
-				                    err = -ENOMEM;
-				                    return err;
+						printk(KERN_ALERT"ERROR: NO CACHE.");
+				                  err = -ENOMEM;
+				                  return err;
 					}
 					iet_page->volume=volume;
 					iet_page->index=page_index;
-					
-					spin_lock(&iet_page->lock);
 					iet_add_page(volume, iet_page);
+					
+					spin_lock(&iet_page->page_lock);
+					
 					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
+					
+					spin_lock(&iet_page->bitmap_lock);
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |=bitmap;
-					spin_unlock(&iet_page->lock);
-						
+					spin_unlock(&iet_page->bitmap_lock);
+					
+					spin_unlock(&iet_page->page_lock);
+					
 					add_to_lru_list(&iet_page->lru_list);
 					add_to_wb_list(&iet_page->wb_list);
 					printk(KERN_ALERT"WRITE MISS\n");
 				}else{		/* Write Hit */
-					spin_lock(&iet_page->lock);
+					spin_lock(&iet_page->page_lock);
+					
+					if(test_and_set_bit(WRITE_BACK, &iet_page->flag)){
+						spin_unlock(&iet_page->page_lock);
+						printk(KERN_ALERT"conflict with write back.\n");
+						err=-EAGAIN;
+						return err;
+					}
+					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
+
+					spin_lock(&iet_page->bitmap_lock);
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |= bitmap;
-					copy_tio_to_page(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
-					spin_unlock(&iet_page->lock);
+					spin_unlock(&iet_page->bitmap_lock);
+					
+					clear_bit(WRITE_BACK, &iet_page->flag);
+					
+					spin_unlock(&iet_page->page_lock);
 					
 					update_lru_list(&iet_page->lru_list);
 					add_to_wb_list(&iet_page->wb_list);
@@ -390,15 +409,21 @@ printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned 
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;
-				sector_num=(current_bytes+512-1)>>9;
-				bitmap=get_bitmap(lba, sector_num);
+				sector_num=current_bytes>>9;
+				bitmap=get_bitmap(lba_off, sector_num);
 				iet_page= iet_find_get_page(volume, page_index);
 				
 				if(iet_page){	/* Read Hit */
-					spin_lock(&iet_page->lock);
+					
+					spin_lock(&iet_page->page_lock);
+					
+					copy_page_to_tio(iet_page, tio->pvec[tio_index], bitmap, skip_blk, current_bytes);
+					
+					spin_lock(&iet_page->bitmap_lock);
 					assert(iet_page->valid_bitmap & bitmap);
-					copy_page_to_tio(iet_page, tio->pvec[tio_index], bitmap, skip_blk, current_bytes);					
-					spin_unlock(&iet_page->lock);
+					spin_unlock(&iet_page->bitmap_lock);
+					
+					spin_unlock(&iet_page->page_lock);
 					
 					update_lru_list(&iet_page->lru_list);
 					printk(KERN_ALERT"READ HIT\n");	
@@ -412,25 +437,25 @@ printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned 
 				                  return err;
 					}
 					iet_page->volume=volume;
-					iet_page->dirty_bitmap =0x00;
-					iet_page->valid_bitmap =0x00;
 					iet_page->index=page_index;
-
-					spin_lock(&iet_page->lock);
-					/* Be careful, first page lock ,then radix tree lock */
+					/* FIXME: Add to radix tree as quick as possible */
 					iet_add_page(volume, iet_page);
-					if((iet_page->valid_bitmap & 0xff)==0){
-						blockio_start_rw_page(iet_page, READ);
-						iet_page->valid_bitmap =0xff;
-						copy_page_to_tio(iet_page, tio->pvec[tio_index],  bitmap, skip_blk, current_bytes);	
-					}
-					spin_unlock(&iet_page->lock);
+					blockio_start_rw_page(iet_page, READ);
+					
+					spin_lock(&iet_page->page_lock);
+					
+					copy_page_to_tio(iet_page, tio->pvec[tio_index],  bitmap, skip_blk, current_bytes);
+					
+					spin_lock(&iet_page->bitmap_lock);
+					iet_page->valid_bitmap =0xff;
+					spin_unlock(&iet_page->bitmap_lock);
+					
+					spin_unlock(&iet_page->page_lock);
 					
 					add_to_lru_list(&iet_page->lru_list);
 					
 					printk(KERN_ALERT"READ MISS, no page\n");	
 				}
-				assert(iet_page && (iet_page->valid_bitmap & bitmap));
 				/*
 				else if( (iet_page->valid_bitmap & bitmap)==0){
 					// may be wrong,  i don't know it's in the right position.
@@ -462,13 +487,19 @@ int writeback_all(void)
 	struct iet_cache_page *iet_page=NULL;
 
 	while((iet_page=get_wb_page())){
-		printk(KERN_ALERT"prepare to write back one page.\n");
-		spin_lock(&iet_page->lock);
-		printk(KERN_ALERT"write back one page. sector is %llu\n", (unsigned long long)iet_page->index);
+		if(test_and_set_bit(WRITE_BACK, &iet_page->flag)){
+			add_to_wb_list(&iet_page->wb_list); /* CPU may be spinning here. */
+			printk(KERN_ALERT"WRITE BACK conflict with write to cache.\n");
+			continue;
+		}
 		blockio_start_rw_page(iet_page, WRITE);
+		printk(KERN_ALERT"WRITE BACK one page. page index is %llu\n", (unsigned long long)iet_page->index);
 		
+		clear_bit(WRITE_BACK, &iet_page->flag);
+		
+		spin_lock(&iet_page->bitmap_lock);
 		iet_page->dirty_bitmap = 0x00;
-		spin_unlock(&iet_page->lock);
+		spin_unlock(&iet_page->bitmap_lock);
 	}
 	return 0;
 }
@@ -476,7 +507,7 @@ int writeback_thread(void *args){
 	do{
 		writeback_all();
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(2*HZ);
+		schedule_timeout(HZ/4);
 	}while(!kthread_should_stop());
 
 	return 0;

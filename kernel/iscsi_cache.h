@@ -10,22 +10,29 @@
 #include <linux/kthread.h>
 #include "iscsi.h"
 
+#define WRITE_BACK	1
+#define HOST	2
+
 struct iet_cache_page{
+	/* initialize when isolated, no lock needed*/
 	struct iet_volume *volume;
-	struct page *page;
 	u64	index;
 
 	/* block is 512 Byte, and page is 4KB */
 	char valid_bitmap;
 	char dirty_bitmap;
+	spinlock_t bitmap_lock;
+	
+	struct page *page;
+	spinlock_t page_lock;
+//	atomic_t read_count;
+	unsigned long flag;
 	
 	struct list_head wb_list;
 	struct list_head lru_list;
-	atomic_t read_count;
-	spinlock_t lock;
 };
 
-char get_bitmap(sector_t lba, u32 num);
+char get_bitmap(sector_t lba_off, u32 num);
 
 void add_to_lru_list(struct list_head *list);
 
@@ -37,10 +44,10 @@ void add_to_wb_list(struct list_head *list);
 
 struct iet_cache_page* get_wb_page(void);
 
-int copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
+void copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes);
 
-int copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
+void copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes);
 
 int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page);
