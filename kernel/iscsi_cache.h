@@ -10,13 +10,16 @@
 #include <linux/kthread.h>
 #include "iscsi.h"
 
-#define WRITE_BACK	1
-#define HOST	2
+enum{
+	WRITE_BACK,
+	HOST,
+	LOCKED,
+};
 
 struct iet_cache_page{
 	/* initialize when isolated, no lock needed*/
 	struct iet_volume *volume;
-	u64	index;
+	pgoff_t	index;
 
 	/* block is 512 Byte, and page is 4KB */
 	char valid_bitmap;
@@ -44,20 +47,24 @@ void add_to_wb_list(struct list_head *list);
 
 struct iet_cache_page* get_wb_page(void);
 
-void copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
+void copy_tio_to_cache(struct page* page, struct iet_cache_page *iet_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes);
 
-void copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
+void copy_cache_to_tio(struct iet_cache_page *iet_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes);
 
 int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page);
 
 int iet_del_page(struct iet_cache_page *iet_page);
 
-struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t sector);
+struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, pgoff_t index);
+struct iet_cache_page *iet_find_or_create_page(struct iet_volume *volume, pgoff_t  index);
+
+extern int writeback_all(void);
+
+extern int writeback_thread(void *args);
 
 
-int writeback_thread(void *args);
 
 int wakeup_writeback(void);
 

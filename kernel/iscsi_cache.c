@@ -159,8 +159,6 @@ struct iet_cache_page* iet_get_free_page(void)
 	struct list_head *list, *tmp;
 	struct iet_cache_page *iet_page=NULL;
 	spin_lock(&lru_lock);
-	
-//printk(KERN_ALERT"find a free page.\n");
 
 	list_for_each_safe(list, tmp, &lru){
 		iet_page=list_entry(list, struct iet_cache_page, lru_list);
@@ -182,12 +180,11 @@ struct iet_cache_page* iet_get_free_page(void)
 		del_page_from_radix(iet_page);
 		iet_page->volume=NULL;
 	}
-//printk(KERN_ALERT"success find a free page for use.\n");
 
 	return iet_page;
 }
 
-void copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page, 
+void copy_tio_to_cache(struct page* page, struct iet_cache_page *iet_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
 	char *dest, *source;
@@ -214,7 +211,7 @@ void copy_tio_to_page(struct page* page, struct iet_cache_page *iet_page,
 	return;
 }
 
-void copy_page_to_tio(struct iet_cache_page *iet_page, struct page* page, 
+void copy_cache_to_tio(struct iet_cache_page *iet_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
 	char *dest, *source;
@@ -254,7 +251,7 @@ int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page)
 	return error;
 }
 
-struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, sector_t index)
+struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, pgoff_t index)
 {
 
 	struct iet_cache_page * iet_page;
@@ -341,22 +338,21 @@ int iet_cache_init(void)
 
 int iet_cache_exit(void)
 {
-		
+	
 	struct list_head *list, *tmp;
 	struct iet_cache_page *iet_page;
+
+	kthread_stop(iet_wb_thread);
+
+	writeback_all();
 
 	list_for_each_safe(list, tmp, &lru){
 		iet_page = list_entry(list, struct iet_cache_page, lru_list);
 		list_del_init(list);
 		kmem_cache_free(iet_page_cache, iet_page);
 	}
-	kthread_stop(iet_wb_thread);
-	kmem_cache_destroy(iet_page_cache);
 	
-/*	unmap reserved physical memory 
-	if (iet_mem_virt)
-		iounmap(iet_mem_virt);
-*/
+	kmem_cache_destroy(iet_page_cache);
 
 	return 0;
 }
