@@ -146,20 +146,27 @@ out:
 	return err;
 }
 
-
-
+/**
+	submit single page segment to the block device, 
+	one segment includes several continuous blocks.
+*/
 static int
-blockio_start_rw_block(struct iet_cache_page *iet_page,   int block_index, int rw)
+blockio_start_rw_single_segment(struct iet_cache_page *iet_page,  
+	unsigned int start, unsigned int blocks, int rw)
 {
 	struct blockio_data *bio_data = iet_page->volume->private;
 	struct tio_work *tio_work;
 	struct bio *bio = NULL;
 	struct blk_plug plug;
 	
-	unsigned int bytes = 512;
+	unsigned int bytes = blocks*512;
+	unsigned int offset = start*512;
 	int max_pages = 1;
 	int err = 0;
 
+	if(blocks==0)
+		return err;
+printk(KERN_ALERT"Submit blocks to device.start=%d, sizes=%d\n", start, blocks);
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
 	if (!tio_work)
 		return -ENOMEM;
@@ -176,17 +183,17 @@ blockio_start_rw_block(struct iet_cache_page *iet_page,   int block_index, int r
 	}
 
 	/* bi_sector is ALWAYS in units of 512 bytes */
-	bio->bi_sector = (iet_page->index<<3)+block_index;
+	bio->bi_sector = (iet_page->index<<3)+start;
 	bio->bi_bdev = bio_data->bdev;
 	bio->bi_end_io = blockio_bio_endio;
 	bio->bi_private = tio_work;
 
 	atomic_inc(&tio_work->bios_remaining);
 
-	if (!bio_add_page(bio, iet_page->page, bytes, 0)){
+	if (!bio_add_page(bio, iet_page->page, bytes, offset)){
 		err = -ENOMEM;
 		goto out;
-	}	
+	}
 
 	blk_start_plug(&plug);
 
@@ -209,6 +216,53 @@ out:
 	return err;
 }
 
+/**
+	blocks in a page aren't always valid,
+	so when writeback, submit to block device separately is necessary.
+
+	Just used in writeback dirty blocks.
+*/
+static int
+blockio_start_rw_page_blocks(struct iet_cache_page *iet_page,  int rw)
+{
+	char bitmap=iet_page->dirty_bitmap;
+	unsigned int i=0, start=0, last=1, sizes=0;
+	int err=0;
+	int tmp=1;
+	for(i=0; i<8; i++){
+		if(bitmap & tmp) {
+			if(last==1)
+				sizes++;
+			else{
+				start=i;
+				sizes=1;
+			}
+			last=1;
+		}else{
+			if(last==1){
+				err=blockio_start_rw_single_segment(iet_page, start, sizes, rw);
+				if(unlikely(err))
+					goto error;
+				last=0;
+			}else{
+				last=0;
+				tmp=tmp<<1;
+				continue;
+			}
+		}
+		tmp=tmp<<1;
+	}
+	if(bitmap & 0x80){
+		err=blockio_start_rw_single_segment(iet_page, start, sizes, rw);
+		if(unlikely(err))
+			goto error;
+	}
+	return 0;
+	
+error:	
+	printk(KERN_ALERT"Error when submit blocks to device.\n");
+	return err;
+}
 
 static int
 blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
@@ -492,12 +546,13 @@ int writeback_all(void)
 			printk(KERN_ALERT"WRITE BACK conflict with write to cache.\n");
 			continue;
 		}
-		printk(KERN_ALERT"WRITE BACK one page. page index is %llu\n", (unsigned long long)iet_page->index);
+		printk(KERN_ALERT"WRITE BACK one page. page index is %llu, dirty is %x.\n", 
+			(unsigned long long)iet_page->index, iet_page->dirty_bitmap);
 		
-		/* BUG happens when run. FIX it soon! */
-		WARN_ON(iet_page->valid_bitmap != 0xff);
-		
-		err=blockio_start_rw_page(iet_page, WRITE);
+		if((iet_page->dirty_bitmap & 0xff) == 0xff)
+			err=blockio_start_rw_page(iet_page, WRITE);
+		else
+			err=blockio_start_rw_page_blocks(iet_page, WRITE);
 		
 		spin_lock(&iet_page->bitmap_lock);
 		iet_page->dirty_bitmap = 0x00;
