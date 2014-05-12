@@ -176,7 +176,7 @@ blockio_start_rw_block(struct iet_cache_page *iet_page,   int block_index, int r
 	}
 
 	/* bi_sector is ALWAYS in units of 512 bytes */
-	bio->bi_sector = iet_page->index<<3+block_index;
+	bio->bi_sector = (iet_page->index<<3)+block_index;
 	bio->bi_bdev = bio_data->bdev;
 	bio->bi_end_io = blockio_bio_endio;
 	bio->bi_private = tio_work;

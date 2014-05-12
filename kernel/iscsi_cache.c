@@ -175,6 +175,7 @@ struct iet_cache_page* iet_get_free_page(void)
 	if(iet_page==NULL){
 		printk(KERN_ALERT" iet cache page is used up! wake up wb thread.\n");
 		wakeup_writeback();
+		return NULL;
 	}
 	if(iet_page->volume){
 		del_page_from_radix(iet_page);
