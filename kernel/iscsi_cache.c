@@ -158,8 +158,9 @@ struct iet_cache_page* iet_get_free_page(void)
 {
 	struct list_head *list, *tmp;
 	struct iet_cache_page *iet_page=NULL;
+	
+again:
 	spin_lock(&lru_lock);
-
 	list_for_each_safe(list, tmp, &lru){
 		iet_page=list_entry(list, struct iet_cache_page, lru_list);
 		assert(iet_page != NULL);
@@ -171,11 +172,10 @@ struct iet_cache_page* iet_get_free_page(void)
 		iet_page=NULL;
 	}
 	spin_unlock(&lru_lock);
-
+	/* Here it maybe not so efficient, leave it at that */
 	if(iet_page==NULL){
-		printk(KERN_ALERT" iet cache page is used up! wake up wb thread.\n");
-		wakeup_writeback();
-		return NULL;
+		printk(KERN_ALERT"[ALERT] iet cache page is used up! Wait for write back...\n");
+		goto again;
 	}
 	if(iet_page->volume){
 		del_page_from_radix(iet_page);
@@ -271,15 +271,7 @@ int iet_del_page(struct iet_cache_page *iet_page)
 	
 	del_page_from_radix(iet_page);
 	iet_page->volume=NULL;
-
-	/*we assume only we use the page frame*/
-//	atomic_set(&iet_page->count, 0);
 	
-	return 0;
-}
-
-int wakeup_writeback(void){
-	wake_up_process(iet_wb_thread);
 	return 0;
 }
 static int iet_page_init(void)

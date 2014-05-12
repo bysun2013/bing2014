@@ -307,11 +307,7 @@ printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned
 
 				if(iet_page == NULL){	/* Write Miss */
 					iet_page=iet_get_free_page();
-					if(!iet_page){
-						printk(KERN_ALERT"ERROR: NO CACHE.");
-				                  err = -ENOMEM;
-				                  return err;
-					}
+
 					iet_page->volume=volume;
 					iet_page->index=page_index;
 					iet_add_page(volume, iet_page);
@@ -421,11 +417,7 @@ printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned 
 
 				if(!iet_page){	/* Read Miss, no page */
 					iet_page=iet_get_free_page();
-					if(!iet_page){
-				                	err = -ENOMEM;
-						printk(KERN_ALERT"ERROR IN GET NEW PAGE.\n");
-				                  return err;
-					}
+
 					iet_page->volume=volume;
 					iet_page->index=page_index;
 					/* FIXME: Add to radix tree as quick as possible */
@@ -456,35 +448,41 @@ printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned 
 
 	return err;
 }
+
 int writeback_all(void)
 {
+	int err=0;
 	struct iet_cache_page *iet_page=NULL;
 
 	while((iet_page=get_wb_page())){
 		if(test_and_set_bit(WRITE_BACK, &iet_page->flag)){
-			add_to_wb_list(&iet_page->wb_list); /* CPU may be spinning here. */
+			/* CPU may be spinning here. */
+			add_to_wb_list(&iet_page->wb_list); 
 			printk(KERN_ALERT"WRITE BACK conflict with write to cache.\n");
 			continue;
 		}
-		BUG_ON(iet_page->valid_bitmap != 0xff);
-		blockio_start_rw_page(iet_page, WRITE);
 		printk(KERN_ALERT"WRITE BACK one page. page index is %llu\n", (unsigned long long)iet_page->index);
 		
-		clear_bit(WRITE_BACK, &iet_page->flag);
+		/* BUG happens when run. FIX it soon! */
+		WARN_ON(iet_page->valid_bitmap != 0xff);
+		
+		err=blockio_start_rw_page(iet_page, WRITE);
 		
 		spin_lock(&iet_page->bitmap_lock);
 		iet_page->dirty_bitmap = 0x00;
 		spin_unlock(&iet_page->bitmap_lock);
+		
+		clear_bit(WRITE_BACK, &iet_page->flag);
 	}
-	return 0;
+	return err;
 }
 int writeback_thread(void *args){
 	do{
 		writeback_all();
 		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(HZ);
+		schedule_timeout(HZ/4);
 	}while(!kthread_should_stop());
-
+	
 	return 0;
 }
 

@@ -58,7 +58,6 @@ int iet_add_page(struct iet_volume *volume,  struct iet_cache_page* iet_page);
 int iet_del_page(struct iet_cache_page *iet_page);
 
 struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, pgoff_t index);
-struct iet_cache_page *iet_find_or_create_page(struct iet_volume *volume, pgoff_t  index);
 
 extern int writeback_all(void);
 
