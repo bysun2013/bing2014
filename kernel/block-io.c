@@ -303,6 +303,7 @@ printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned
 					current_bytes=bytes;
 				sector_num=current_bytes>>9;
 				bitmap=get_bitmap(lba_off, sector_num);
+again:
 				iet_page= iet_find_get_page(volume, page_index);
 
 				if(iet_page == NULL){	/* Write Miss */
@@ -310,9 +311,22 @@ printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned
 
 					iet_page->volume=volume;
 					iet_page->index=page_index;
-					iet_add_page(volume, iet_page);
-					
-					spin_lock(&iet_page->page_lock);
+					//spin_lock(&iet_page->page_lock);
+					lock_page(iet_page->page);
+					err=iet_add_page(volume, iet_page);
+					if(unlikely(err)){
+						if(err==-EEXIST){
+							throw_to_lru_list(&iet_page->lru_list);
+							//spin_unlock(&iet_page->page_lock);
+							unlock_page(iet_page->page);
+							iet_page=NULL;
+							goto again;
+						}
+						printk(KERN_ERR"Error, but reason is not clear.\n");
+						unlock_page(iet_page->page);
+						//spin_unlock(&iet_page->page_lock);
+						return err;
+					}
 					
 					copy_tio_to_cache(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
 					
@@ -320,17 +334,19 @@ printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |=bitmap;
 					spin_unlock(&iet_page->bitmap_lock);
-					
-					spin_unlock(&iet_page->page_lock);
+
+					unlock_page(iet_page->page);
+					//spin_unlock(&iet_page->page_lock);
 					
 					add_to_lru_list(&iet_page->lru_list);
 					add_to_wb_list(&iet_page->wb_list);
 					printk(KERN_ALERT"WRITE MISS\n");
 				}else{		/* Write Hit */
-					spin_lock(&iet_page->page_lock);
-					
+					//spin_lock(&iet_page->page_lock);
+					lock_page(iet_page->page);
 					if(test_and_set_bit(WRITE_BACK, &iet_page->flag)){
-						spin_unlock(&iet_page->page_lock);
+						//spin_unlock(&iet_page->page_lock);
+						unlock_page(iet_page->page);
 						printk(KERN_ALERT"conflict with write back.\n");
 						err=-EAGAIN;
 						return err;
@@ -344,7 +360,8 @@ printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned
 					
 					clear_bit(WRITE_BACK, &iet_page->flag);
 					
-					spin_unlock(&iet_page->page_lock);
+					//spin_unlock(&iet_page->page_lock);
+					unlock_page(iet_page->page);
 					
 					update_lru_list(&iet_page->lru_list);
 					add_to_wb_list(&iet_page->wb_list);
@@ -397,19 +414,21 @@ printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned 
 					current_bytes=bytes;
 				sector_num=current_bytes>>9;
 				bitmap=get_bitmap(lba_off, sector_num);
+again:
 				iet_page= iet_find_get_page(volume, page_index);
 				
 				if(iet_page){	/* Read Hit */
-					
-					spin_lock(&iet_page->page_lock);
+					lock_page(iet_page->page);
+					//spin_lock(&iet_page->page_lock);
 					
 					copy_cache_to_tio(iet_page, tio->pvec[tio_index], bitmap, skip_blk, current_bytes);
 					
 					spin_lock(&iet_page->bitmap_lock);
 					assert(iet_page->valid_bitmap & bitmap);
 					spin_unlock(&iet_page->bitmap_lock);
-					
-					spin_unlock(&iet_page->page_lock);
+
+					unlock_page(iet_page->page);
+					//spin_unlock(&iet_page->page_lock);
 					
 					update_lru_list(&iet_page->lru_list);
 					printk(KERN_ALERT"READ HIT\n");	
@@ -420,19 +439,31 @@ printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned 
 
 					iet_page->volume=volume;
 					iet_page->index=page_index;
-					/* FIXME: Add to radix tree as quick as possible */
-					iet_add_page(volume, iet_page);
-					blockio_start_rw_page(iet_page, READ);
+					//spin_lock(&iet_page->page_lock);
+					lock_page(iet_page->page);
 					
-					spin_lock(&iet_page->page_lock);
+					err=iet_add_page(volume, iet_page);
+					if(unlikely(err)){
+						if(err==-EEXIST){
+							throw_to_lru_list(&iet_page->lru_list);
+							unlock_page(iet_page->page);
+							iet_page=NULL;
+							goto again;
+						}
+						printk(KERN_ERR"Error, but reason is not clear.\n");
+						unlock_page(iet_page->page);
+						return err;
+					}
+					blockio_start_rw_page(iet_page, READ);
 					
 					copy_cache_to_tio(iet_page, tio->pvec[tio_index],  bitmap, skip_blk, current_bytes);
 					
 					spin_lock(&iet_page->bitmap_lock);
 					iet_page->valid_bitmap =0xff;
 					spin_unlock(&iet_page->bitmap_lock);
-					
-					spin_unlock(&iet_page->page_lock);
+
+					unlock_page(iet_page->page);					
+					//spin_unlock(&iet_page->page_lock);
 					
 					add_to_lru_list(&iet_page->lru_list);
 					

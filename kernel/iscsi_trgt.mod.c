@@ -38,6 +38,7 @@ __attribute__((section("__versions"))) = {
 	{ 0x3a013b7d, "remove_wait_queue" },
 	{ 0xacf4d843, "match_strdup" },
 	{ 0xc01cf848, "_raw_read_lock" },
+	{ 0xe0895973, "__lock_page" },
 	{ 0xa4eb4eff, "_raw_spin_lock_bh" },
 	{ 0xdd5c3f37, "sock_recvmsg" },
 	{ 0x96c7e43b, "seq_printf" },
@@ -85,6 +86,7 @@ __attribute__((section("__versions"))) = {
 	{ 0x8834396c, "mod_timer" },
 	{ 0x6b1c0807, "netlink_unicast" },
 	{ 0xa07217e7, "skb_pull" },
+	{ 0x62f623a9, "unlock_page" },
 	{ 0xc6042de6, "init_net" },
 	{ 0x5215b1b6, "fput" },
 	{ 0x5724261, "contig_page_data" },
@@ -151,4 +153,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "ECF256E6C74EA49D905A0F5");
+MODULE_INFO(srcversion, "6AE1CE9056EF0F30A3F3AA8");

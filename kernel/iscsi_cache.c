@@ -123,6 +123,14 @@ void add_to_lru_list(struct list_head *list)
 	list_add_tail(list, &lru);
 	spin_unlock(&lru_lock);
 }
+
+void throw_to_lru_list(struct list_head *list)
+{
+	spin_lock(&lru_lock);
+	list_add(list, &lru);
+	spin_unlock(&lru_lock);
+}
+
 void update_lru_list(struct list_head *list)
 {
 	spin_lock(&lru_lock);
@@ -175,6 +183,7 @@ again:
 	/* Here it maybe not so efficient, leave it at that */
 	if(iet_page==NULL){
 		printk(KERN_ALERT"[ALERT] iet cache page is used up! Wait for write back...\n");
+		writeback_all();
 		goto again;
 	}
 	if(iet_page->volume){
