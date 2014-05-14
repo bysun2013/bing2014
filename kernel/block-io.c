@@ -216,54 +216,6 @@ out:
 	return err;
 }
 
-/**
-	blocks in a page aren't always valid,
-	so when writeback, submit to block device separately is necessary.
-
-	Just used in writeback dirty blocks.
-*/
-static int
-blockio_start_rw_page_blocks(struct iet_cache_page *iet_page,  int rw)
-{
-	char bitmap=iet_page->dirty_bitmap;
-	unsigned int i=0, start=0, last=1, sizes=0;
-	int err=0;
-	int tmp=1;
-	for(i=0; i<8; i++){
-		if(bitmap & tmp) {
-			if(last==1)
-				sizes++;
-			else{
-				start=i;
-				sizes=1;
-			}
-			last=1;
-		}else{
-			if(last==1){
-				err=blockio_start_rw_single_segment(iet_page, start, sizes, rw);
-				if(unlikely(err))
-					goto error;
-				last=0;
-			}else{
-				last=0;
-				tmp=tmp<<1;
-				continue;
-			}
-		}
-		tmp=tmp<<1;
-	}
-	if(bitmap & 0x80){
-		err=blockio_start_rw_single_segment(iet_page, start, sizes, rw);
-		if(unlikely(err))
-			goto error;
-	}
-	return 0;
-	
-error:	
-	printk(KERN_ALERT"Error when submit blocks to device.\n");
-	return err;
-}
-
 static int
 blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
 {
@@ -316,10 +268,65 @@ blockio_start_rw_page(struct iet_cache_page *iet_page,   int rw)
 	return err;
 out:
 	bio_put(bio);
-	printk(KERN_ALERT"ERROR rw page.\n");
+	printk(KERN_ALERT"Error when rw page.\n");
 
 	kfree(tio_work);
 
+	return err;
+}
+
+/**
+* blocks in a page aren't always valid,so when writeback
+* submit to block device separately is necessary.
+*
+* Just used in writeback dirty blocks.
+*/
+int
+blockio_start_rw_page_blocks(struct iet_cache_page *iet_page,  int rw)
+{
+	char bitmap=iet_page->dirty_bitmap;
+	unsigned int i=0, start=0, last=1, sizes=0;
+	int err=0;
+	int tmp=1;
+
+	/* it's more possible, so detect it first. */
+	if((iet_page->dirty_bitmap & 0xff) == 0xff){
+		err=blockio_start_rw_page(iet_page, WRITE);
+		return err;
+	}
+	
+	for(i=0; i<8; i++){
+		if(bitmap & tmp) {
+			if(last==1)
+				sizes++;
+			else{
+				start=i;
+				sizes=1;
+			}
+			last=1;
+		}else{
+			if(last==1){
+				err=blockio_start_rw_single_segment(iet_page, start, sizes, rw);
+				if(unlikely(err))
+					goto error;
+				last=0;
+			}else{
+				last=0;
+				tmp=tmp<<1;
+				continue;
+			}
+		}
+		tmp=tmp<<1;
+	}
+	if(bitmap & 0x80){
+		err=blockio_start_rw_single_segment(iet_page, start, sizes, rw);
+		if(unlikely(err))
+			goto error;
+	}
+	return 0;
+	
+error:	
+	printk(KERN_ALERT"Error when submit blocks to device.\n");
 	return err;
 }
 
@@ -365,56 +372,45 @@ again:
 
 					iet_page->volume=volume;
 					iet_page->index=page_index;
-					//spin_lock(&iet_page->page_lock);
+
 					lock_page(iet_page->page);
 					err=iet_add_page(volume, iet_page);
 					if(unlikely(err)){
 						if(err==-EEXIST){
 							throw_to_lru_list(&iet_page->lru_list);
-							//spin_unlock(&iet_page->page_lock);
 							unlock_page(iet_page->page);
 							iet_page=NULL;
 							goto again;
 						}
 						printk(KERN_ERR"Error, but reason is not clear.\n");
 						unlock_page(iet_page->page);
-						//spin_unlock(&iet_page->page_lock);
 						return err;
 					}
 					
 					copy_tio_to_cache(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
-					
-					spin_lock(&iet_page->bitmap_lock);
+
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |=bitmap;
-					spin_unlock(&iet_page->bitmap_lock);
 
 					unlock_page(iet_page->page);
-					//spin_unlock(&iet_page->page_lock);
 					
 					add_to_lru_list(&iet_page->lru_list);
 					add_to_wb_list(&iet_page->wb_list);
 					printk(KERN_ALERT"WRITE MISS\n");
 				}else{		/* Write Hit */
-					//spin_lock(&iet_page->page_lock);
+
 					lock_page(iet_page->page);
-					if(test_and_set_bit(WRITE_BACK, &iet_page->flag)){
-						//spin_unlock(&iet_page->page_lock);
-						unlock_page(iet_page->page);
-						printk(KERN_ALERT"conflict with write back.\n");
-						err=-EAGAIN;
-						return err;
-					}
+					
+					wait_on_page_writeback(iet_page->page);
+					BUG_ON(PageWriteback(iet_page->page));
+					
 					copy_tio_to_cache(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
 
-					spin_lock(&iet_page->bitmap_lock);
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |= bitmap;
-					spin_unlock(&iet_page->bitmap_lock);
 					
-					clear_bit(WRITE_BACK, &iet_page->flag);
+					end_page_writeback(iet_page->page);
 					
-					//spin_unlock(&iet_page->page_lock);
 					unlock_page(iet_page->page);
 					
 					update_lru_list(&iet_page->lru_list);
@@ -473,16 +469,12 @@ again:
 				
 				if(iet_page){	/* Read Hit */
 					lock_page(iet_page->page);
-					//spin_lock(&iet_page->page_lock);
 					
 					copy_cache_to_tio(iet_page, tio->pvec[tio_index], bitmap, skip_blk, current_bytes);
 					
-					spin_lock(&iet_page->bitmap_lock);
 					assert(iet_page->valid_bitmap & bitmap);
-					spin_unlock(&iet_page->bitmap_lock);
 
 					unlock_page(iet_page->page);
-					//spin_unlock(&iet_page->page_lock);
 					
 					update_lru_list(&iet_page->lru_list);
 					printk(KERN_ALERT"READ HIT\n");	
@@ -493,7 +485,7 @@ again:
 
 					iet_page->volume=volume;
 					iet_page->index=page_index;
-					//spin_lock(&iet_page->page_lock);
+
 					lock_page(iet_page->page);
 					
 					err=iet_add_page(volume, iet_page);
@@ -512,12 +504,9 @@ again:
 					
 					copy_cache_to_tio(iet_page, tio->pvec[tio_index],  bitmap, skip_blk, current_bytes);
 					
-					spin_lock(&iet_page->bitmap_lock);
 					iet_page->valid_bitmap =0xff;
-					spin_unlock(&iet_page->bitmap_lock);
 
 					unlock_page(iet_page->page);					
-					//spin_unlock(&iet_page->page_lock);
 					
 					add_to_lru_list(&iet_page->lru_list);
 					
@@ -540,25 +529,25 @@ int writeback_all(void)
 	struct iet_cache_page *iet_page=NULL;
 
 	while((iet_page=get_wb_page())){
-		if(test_and_set_bit(WRITE_BACK, &iet_page->flag)){
-			/* CPU may be spinning here. */
+		lock_page(iet_page->page);
+		
+		if (PageWriteback(iet_page->page)) {
+			/* move to tail, CPU may be spinning here. */
 			add_to_wb_list(&iet_page->wb_list); 
 			printk(KERN_ALERT"WRITE BACK conflict with write to cache.\n");
 			continue;
 		}
+
 		printk(KERN_ALERT"WRITE BACK one page. page index is %llu, dirty is %x.\n", 
 			(unsigned long long)iet_page->index, iet_page->dirty_bitmap);
 		
-		if((iet_page->dirty_bitmap & 0xff) == 0xff)
-			err=blockio_start_rw_page(iet_page, WRITE);
-		else
-			err=blockio_start_rw_page_blocks(iet_page, WRITE);
+		err=blockio_start_rw_page_blocks(iet_page, WRITE);
 		
-		spin_lock(&iet_page->bitmap_lock);
 		iet_page->dirty_bitmap = 0x00;
-		spin_unlock(&iet_page->bitmap_lock);
 		
-		clear_bit(WRITE_BACK, &iet_page->flag);
+		end_page_writeback(iet_page->page);
+
+		lock_page(iet_page->page);
 	}
 	return err;
 }

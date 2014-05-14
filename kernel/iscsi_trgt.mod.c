@@ -40,6 +40,7 @@ __attribute__((section("__versions"))) = {
 	{ 0xc01cf848, "_raw_read_lock" },
 	{ 0xe0895973, "__lock_page" },
 	{ 0xa4eb4eff, "_raw_spin_lock_bh" },
+	{ 0xe8b63ace, "radix_tree_range_tag_if_tagged" },
 	{ 0xdd5c3f37, "sock_recvmsg" },
 	{ 0x96c7e43b, "seq_printf" },
 	{ 0xe120b394, "remove_proc_entry" },
@@ -57,6 +58,7 @@ __attribute__((section("__versions"))) = {
 	{ 0x1f00ebee, "kthread_create_on_node" },
 	{ 0x7d11c268, "jiffies" },
 	{ 0xe2d5255a, "strcmp" },
+	{ 0x8522d5f7, "end_page_writeback" },
 	{ 0xec67185d, "fsync_bdev" },
 	{ 0x9f9b6c64, "sock_no_sendpage" },
 	{ 0x68dfc59f, "__init_waitqueue_head" },
@@ -85,6 +87,8 @@ __attribute__((section("__versions"))) = {
 	{ 0x7f658e80, "_raw_write_lock" },
 	{ 0x8834396c, "mod_timer" },
 	{ 0x6b1c0807, "netlink_unicast" },
+	{ 0xdb266609, "wait_on_page_bit" },
+	{ 0xcde172ac, "radix_tree_gang_lookup_tag_slot" },
 	{ 0xa07217e7, "skb_pull" },
 	{ 0x62f623a9, "unlock_page" },
 	{ 0xc6042de6, "init_net" },
@@ -116,6 +120,7 @@ __attribute__((section("__versions"))) = {
 	{ 0x8f605f2f, "kmem_cache_alloc_trace" },
 	{ 0x67f7403e, "_raw_spin_lock" },
 	{ 0x73507dad, "vfs_writev" },
+	{ 0x5642793a, "radix_tree_tag_clear" },
 	{ 0x178fd99a, "kmem_cache_create" },
 	{ 0x4302d0eb, "free_pages" },
 	{ 0xe45f60d8, "__wake_up" },
@@ -153,4 +158,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "EB404D1B0B9A3A7ADC82864");
+MODULE_INFO(srcversion, "60488393A6CB171AD6C23A1");

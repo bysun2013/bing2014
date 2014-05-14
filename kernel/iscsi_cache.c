@@ -323,7 +323,6 @@ int iet_cache_init(void)
 		iet_page->index=-1; 
 		
 		iet_page->dirty_bitmap=iet_page->valid_bitmap=0x00;
-		spin_lock_init(&iet_page->bitmap_lock);
 		
 		iet_page->page=page;
 		spin_lock_init(&iet_page->page_lock);

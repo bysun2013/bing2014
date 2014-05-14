@@ -24,7 +24,6 @@ struct iet_cache_page{
 	/* block is 512 Byte, and page is 4KB */
 	char valid_bitmap;
 	char dirty_bitmap;
-	spinlock_t bitmap_lock;
 	
 	struct page *page;
 	spinlock_t page_lock;
@@ -57,6 +56,7 @@ int iet_del_page(struct iet_cache_page *iet_page);
 struct iet_cache_page* iet_get_free_page(void);
 struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, pgoff_t index);
 
+extern int blockio_start_rw_page_blocks(struct iet_cache_page * iet_page,int rw);
 extern int writeback_all(void);
 extern int writeback_thread(void *args);
 
