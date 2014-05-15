@@ -8,11 +8,31 @@
 #include "iscsi.h"
 #include "iscsi_cache.h"
 
-#define IETCACHE_TAG_DIRTY	0
-#define IETCACHE_TAG_WRITEBACK	1
-#define IETCACHE_TAG_TOWRITE	2
-
 #define PVEC_SIZE 15
+
+void iet_set_page_tag(struct iet_cache_page *iet_page, unsigned int tag)
+{
+	struct iet_volume *volume=iet_page->volume;
+	
+	if (volume) {	/* Race with truncate? */
+		spin_lock_irq(&volume->tree_lock);
+		radix_tree_tag_set(&volume->page_tree,
+				iet_page->index, tag);
+		spin_lock_irq(&volume->tree_lock);
+	}
+}
+
+void iet_clear_page_tag(struct iet_cache_page *iet_page, unsigned int tag)
+{
+	struct iet_volume *volume=iet_page->volume;
+	
+	if (volume) {	/* Race with truncate? */
+		spin_lock_irq(&volume->tree_lock);
+		radix_tree_tag_clear(&volume->page_tree,
+				iet_page->index, tag);
+		spin_lock_irq(&volume->tree_lock);
+	}
+}
 
 static void iet_tag_pages_for_writeback(struct iet_volume *volume,
 			     pgoff_t start, pgoff_t end)
@@ -95,6 +115,9 @@ int writeback_lun(struct iet_volume *volume, unsigned int mode){
 		tag = PAGECACHE_TAG_TOWRITE;
 	else
 		tag = PAGECACHE_TAG_DIRTY;
+
+	if(!volume)
+		return err;
 	
 	if (mode == WB_SYNC_ALL)
 		iet_tag_pages_for_writeback(volume, index, end);
@@ -144,6 +167,7 @@ continue_unlock:
 				printk(KERN_ALERT"writeback_lun: Error when submit blocks to device.\n");
 				goto continue_unlock;
 			}
+			printk(KERN_ALERT"Writeback_lun: submit one blocks to device.\n");
 			iet_page->dirty_bitmap=0x00;
 
 			spin_lock(&volume->tree_lock);
@@ -173,5 +197,53 @@ again:
 	}
 	return err;
 }
+int writeback_all(void)
+{
+	int err=0;
+	struct iet_cache_page *iet_page=NULL;
 
+	while((iet_page=get_wb_page())){
+		lock_page(iet_page->page);
+		
+		if (!mutex_trylock(&iet_page->write)) {
+			/* move to tail, CPU may be spinning here. */
+			add_to_wb_list(&iet_page->wb_list); 
+			printk(KERN_ALERT"WRITE BACK conflict with write to cache.\n");
+			continue;
+		}
+
+		printk(KERN_ALERT"WRITE BACK one page. page index is %llu, dirty is %x.\n", 
+			(unsigned long long)iet_page->index, iet_page->dirty_bitmap);
+		
+		err=blockio_start_rw_page_blocks(iet_page, WRITE);
+		
+		iet_page->dirty_bitmap = 0x00;
+
+		mutex_unlock(&iet_page->write);
+		//iet_clear_page_writeback(iet_page->page);
+
+		unlock_page(iet_page->page);
+	}
+	return err;
+}
+
+extern struct list_head target_list;
+extern struct mutex target_list_mutex;
+int writeback_all_target(void){
+	struct iscsi_target *target;
+	list_for_each_entry(target, &target_list, t_list){
+		writeback_target(target,  WB_SYNC_NONE);
+	}
+	return 0;
+}
+
+int writeback_thread(void *args){
+	do{
+		writeback_all();
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(HZ/4);
+	}while(!kthread_should_stop());
+	
+	return 0;
+}
 

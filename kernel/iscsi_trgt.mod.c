@@ -57,8 +57,8 @@ __attribute__((section("__versions"))) = {
 	{ 0xc499ae1e, "kstrdup" },
 	{ 0x1f00ebee, "kthread_create_on_node" },
 	{ 0x7d11c268, "jiffies" },
+	{ 0x9b823f21, "mutex_trylock" },
 	{ 0xe2d5255a, "strcmp" },
-	{ 0x8522d5f7, "end_page_writeback" },
 	{ 0xec67185d, "fsync_bdev" },
 	{ 0x9f9b6c64, "sock_no_sendpage" },
 	{ 0x68dfc59f, "__init_waitqueue_head" },
@@ -105,6 +105,7 @@ __attribute__((section("__versions"))) = {
 	{ 0xd53ffb53, "__free_pages" },
 	{ 0xd1e94001, "blkdev_put" },
 	{ 0x51d2c130, "__alloc_skb" },
+	{ 0x54434d6, "radix_tree_tag_set" },
 	{ 0x47b3f862, "radix_tree_lookup_slot" },
 	{ 0x8bf826c, "_raw_spin_unlock_bh" },
 	{ 0xf0fdf6cb, "__stack_chk_fail" },
@@ -158,4 +159,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "60488393A6CB171AD6C23A1");
+MODULE_INFO(srcversion, "983423DA42FE9C3966FB8C4");

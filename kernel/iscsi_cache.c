@@ -327,6 +327,7 @@ int iet_cache_init(void)
 		iet_page->page=page;
 		spin_lock_init(&iet_page->page_lock);
 		iet_page->flag=0;
+		mutex_init(&iet_page->write);
 		INIT_LIST_HEAD(&iet_page->wb_list);
 		list_add_tail(&iet_page->lru_list, &lru);
 		

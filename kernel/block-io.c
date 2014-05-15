@@ -166,7 +166,7 @@ blockio_start_rw_single_segment(struct iet_cache_page *iet_page,
 
 	if(blocks==0)
 		return err;
-printk(KERN_ALERT"Submit blocks to device.start=%d, sizes=%d\n", start, blocks);
+	printk(KERN_ALERT"submit blocks to device, start=%d, sizes=%d\n", start, blocks);
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
 	if (!tio_work)
 		return -ENOMEM;
@@ -391,7 +391,8 @@ again:
 
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |=bitmap;
-
+					//iet_set_page_tag(iet_page, IETCACHE_TAG_DIRTY);
+					
 					unlock_page(iet_page->page);
 					
 					add_to_lru_list(&iet_page->lru_list);
@@ -401,15 +402,14 @@ again:
 
 					lock_page(iet_page->page);
 					
-					wait_on_page_writeback(iet_page->page);
-					BUG_ON(PageWriteback(iet_page->page));
-					
+					 mutex_lock(&iet_page->write);
 					copy_tio_to_cache(tio->pvec[tio_index], iet_page, bitmap, skip_blk, current_bytes);
 
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |= bitmap;
+					//iet_set_page_tag(iet_page, IETCACHE_TAG_DIRTY);
 					
-					end_page_writeback(iet_page->page);
+					 mutex_unlock(&iet_page->write);
 					
 					unlock_page(iet_page->page);
 					
@@ -521,44 +521,6 @@ again:
 	}
 
 	return err;
-}
-
-int writeback_all(void)
-{
-	int err=0;
-	struct iet_cache_page *iet_page=NULL;
-
-	while((iet_page=get_wb_page())){
-		lock_page(iet_page->page);
-		
-		if (PageWriteback(iet_page->page)) {
-			/* move to tail, CPU may be spinning here. */
-			add_to_wb_list(&iet_page->wb_list); 
-			printk(KERN_ALERT"WRITE BACK conflict with write to cache.\n");
-			continue;
-		}
-
-		printk(KERN_ALERT"WRITE BACK one page. page index is %llu, dirty is %x.\n", 
-			(unsigned long long)iet_page->index, iet_page->dirty_bitmap);
-		
-		err=blockio_start_rw_page_blocks(iet_page, WRITE);
-		
-		iet_page->dirty_bitmap = 0x00;
-		
-		end_page_writeback(iet_page->page);
-
-		lock_page(iet_page->page);
-	}
-	return err;
-}
-int writeback_thread(void *args){
-	do{
-		writeback_all();
-		set_current_state(TASK_INTERRUPTIBLE);
-		schedule_timeout(HZ/4);
-	}while(!kthread_should_stop());
-	
-	return 0;
 }
 
 static int

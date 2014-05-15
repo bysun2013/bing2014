@@ -16,6 +16,11 @@ enum{
 	LOCKED,
 };
 
+#define IETCACHE_TAG_DIRTY	0
+#define IETCACHE_TAG_WRITEBACK	1
+#define IETCACHE_TAG_TOWRITE	2
+
+
 struct iet_cache_page{
 	/* initialize when isolated, no lock needed*/
 	struct iet_volume *volume;
@@ -29,6 +34,7 @@ struct iet_cache_page{
 	spinlock_t page_lock;
 
 	unsigned long flag;
+	struct mutex write;
 	
 	struct list_head wb_list;
 	struct list_head lru_list;
@@ -58,7 +64,30 @@ struct iet_cache_page* iet_find_get_page(struct iet_volume *volume, pgoff_t inde
 
 extern int blockio_start_rw_page_blocks(struct iet_cache_page * iet_page,int rw);
 extern int writeback_all(void);
+extern int writeback_all_target(void);
+
 extern int writeback_thread(void *args);
+/*
+static inline void iet_wait_set_page_writeback(struct iet_cache_page *iet_page)
+{
+	while(TestSetPageWriteback(iet_page->page))
+		wait_on_page_writeback(iet_page->page);
+}
+static inline int iet_clear_page_writeback(struct iet_cache_page *iet_page)
+{
+	struct page* page=iet_page->page;
+	
+	 if(!TestClearPageWriteback(page)){
+	 	printk(KERN_ALERT"Error when clear writeback flag of page.\n");
+	 	BUG();
+	 }
+	smp_mb__after_clear_bit();
+	wake_up_bit(page_waitqueue(page), &page->flags, PG_writeback);
+}*/
+
+void iet_set_page_tag(struct iet_cache_page *iet_page, unsigned int tag);
+void iet_clear_page_tag(struct iet_cache_page *iet_page, unsigned int tag);
+
 
 int iet_cache_init(void);
 
