@@ -33,11 +33,12 @@ static struct kmem_cache *iet_page_cache;
 
 /*LRU link all of pages and devices*/
 static struct list_head lru;
-static struct list_head wb;
-
 spinlock_t		lru_lock;
-spinlock_t		wb_lock;
 
+#ifdef WRITEBACK_LIST
+static struct list_head wb;
+spinlock_t		wb_lock;
+#endif
 
 /* bitmap is 7-0, Notice the sequence of bitmap*/
 char get_bitmap(sector_t lba_off, u32 num){
@@ -139,6 +140,7 @@ void update_lru_list(struct list_head *list)
 	spin_unlock(&lru_lock);
 }
 
+#ifdef WRITEBACK_LIST
 void add_to_wb_list(struct list_head *list)
 {
 	spin_lock(&wb_lock);
@@ -160,6 +162,7 @@ struct iet_cache_page* get_wb_page(void)
 	spin_unlock(&wb_lock);
 	return NULL;
 }
+#endif
 
 /* the free page is isolated, NOT list to LRU */
 struct iet_cache_page* iet_get_free_page(void)
@@ -183,7 +186,7 @@ again:
 	/* Here it maybe not so efficient, leave it at that */
 	if(iet_page==NULL){
 		printk(KERN_ALERT"[ALERT] iet cache page is used up! Wait for write back...\n");
-		writeback_all();
+		writeback_all_target();
 		goto again;
 	}
 	if(iet_page->volume){
@@ -306,10 +309,13 @@ int iet_cache_init(void)
 		return err;
 
 	INIT_LIST_HEAD(&lru);
-	INIT_LIST_HEAD(&wb);
 	spin_lock_init(&lru_lock);
-	spin_lock_init(&wb_lock);
 	
+#ifdef WRITEBACK_LIST	
+	INIT_LIST_HEAD(&wb);
+	spin_lock_init(&wb_lock);
+#endif
+
 	iet_page_num = (iet_mem_size)/PAGE_SIZE;
 	
 	tmp_addr = iet_mem_virt;
@@ -328,7 +334,9 @@ int iet_cache_init(void)
 		spin_lock_init(&iet_page->page_lock);
 		iet_page->flag=0;
 		mutex_init(&iet_page->write);
+#ifdef WRITEBACK_LIST		
 		INIT_LIST_HEAD(&iet_page->wb_list);
+#endif
 		list_add_tail(&iet_page->lru_list, &lru);
 		
 		tmp_addr = tmp_addr+ PAGE_SIZE;
@@ -345,8 +353,12 @@ int iet_cache_exit(void)
 	struct iet_cache_page *iet_page;
 
 	kthread_stop(iet_wb_thread);
-
+	
+#ifdef WRITEBACK_LIST
 	writeback_all();
+#else
+	writeback_all_target();
+#endif
 
 	list_for_each_safe(list, tmp, &lru){
 		iet_page = list_entry(list, struct iet_cache_page, lru_list);

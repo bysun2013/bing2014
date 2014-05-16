@@ -8,17 +8,16 @@
 #include "iscsi.h"
 #include "iscsi_cache.h"
 
-#define PVEC_SIZE 15
+#define PVEC_SIZE		16
 
 void iet_set_page_tag(struct iet_cache_page *iet_page, unsigned int tag)
 {
 	struct iet_volume *volume=iet_page->volume;
-	
 	if (volume) {	/* Race with truncate? */
 		spin_lock_irq(&volume->tree_lock);
 		radix_tree_tag_set(&volume->page_tree,
 				iet_page->index, tag);
-		spin_lock_irq(&volume->tree_lock);
+		spin_unlock_irq(&volume->tree_lock);
 	}
 }
 
@@ -30,7 +29,7 @@ void iet_clear_page_tag(struct iet_cache_page *iet_page, unsigned int tag)
 		spin_lock_irq(&volume->tree_lock);
 		radix_tree_tag_clear(&volume->page_tree,
 				iet_page->index, tag);
-		spin_lock_irq(&volume->tree_lock);
+		spin_unlock_irq(&volume->tree_lock);
 	}
 }
 
@@ -112,9 +111,9 @@ int writeback_lun(struct iet_volume *volume, unsigned int mode){
 	int tag;
 	
 	if (mode == WB_SYNC_ALL)
-		tag = PAGECACHE_TAG_TOWRITE;
+		tag = IETCACHE_TAG_TOWRITE;
 	else
-		tag = PAGECACHE_TAG_DIRTY;
+		tag = IETCACHE_TAG_DIRTY;
 
 	if(!volume)
 		return err;
@@ -124,7 +123,6 @@ int writeback_lun(struct iet_volume *volume, unsigned int mode){
 	done_index = index;
 	while (!done && (index <= end)) {
 		int i;
-		/* when finish, need to clean tag, don't forget */
 		nr_pages = iet_find_get_pages_tag(volume, &index, tag,
 			      min(end - index, (pgoff_t)PVEC_SIZE-1) + 1, pages);
 		if (nr_pages == 0)
@@ -148,37 +146,37 @@ continue_unlock:
 				continue;
 			}
 
-			if (!iet_page->dirty_bitmap) {
+			if (!(iet_page->dirty_bitmap & 0xff)) {
 				/* someone wrote it for us */
 				goto continue_unlock;
 			}
 
-			if (PageWriteback(iet_page->page)) {
-				if (mode != WB_SYNC_NONE)
-					wait_on_page_writeback(iet_page->page);
+			if (!mutex_trylock(&iet_page->write)) {
+				if (mode == WB_SYNC_ALL)
+					mutex_lock(&iet_page->write);
 				else
 					goto continue_unlock;
 			}
-
-			BUG_ON(PageWriteback(iet_page->page));
+			
+			printk(KERN_ALERT"WRITE BACK one page. page index is %llu, dirty is %x.\n", 
+				(unsigned long long)iet_page->index, iet_page->dirty_bitmap);
 
 			err = blockio_start_rw_page_blocks(iet_page, WRITE);
 			if (unlikely(err)) {
 				printk(KERN_ALERT"writeback_lun: Error when submit blocks to device.\n");
+				mutex_unlock(&iet_page->write);
 				goto continue_unlock;
 			}
-			printk(KERN_ALERT"Writeback_lun: submit one blocks to device.\n");
 			iet_page->dirty_bitmap=0x00;
 
-			spin_lock(&volume->tree_lock);
-			radix_tree_tag_clear(&volume->page_tree, iet_page->index, tag);
-			spin_unlock(&volume->tree_lock);
+			mutex_unlock(&iet_page->write);
+			
+			iet_clear_page_tag(iet_page, tag);
 			
 			unlock_page(iet_page->page);
 		}
 		cond_resched();
 	}
-	
 	return err;
 }
 
@@ -197,6 +195,8 @@ again:
 	}
 	return err;
 }
+#ifdef WRITEBACK_LIST
+/* this writeback way is based on list, and is abandoned */
 int writeback_all(void)
 {
 	int err=0;
@@ -220,12 +220,11 @@ int writeback_all(void)
 		iet_page->dirty_bitmap = 0x00;
 
 		mutex_unlock(&iet_page->write);
-		//iet_clear_page_writeback(iet_page->page);
-
 		unlock_page(iet_page->page);
 	}
 	return err;
 }
+#endif
 
 extern struct list_head target_list;
 extern struct mutex target_list_mutex;
@@ -239,7 +238,11 @@ int writeback_all_target(void){
 
 int writeback_thread(void *args){
 	do{
+#ifdef WRITEBACK_LIST
 		writeback_all();
+#else
+		writeback_all_target();
+#endif
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(HZ/4);
 	}while(!kthread_should_stop());

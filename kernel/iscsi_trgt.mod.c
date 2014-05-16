@@ -87,7 +87,6 @@ __attribute__((section("__versions"))) = {
 	{ 0x7f658e80, "_raw_write_lock" },
 	{ 0x8834396c, "mod_timer" },
 	{ 0x6b1c0807, "netlink_unicast" },
-	{ 0xdb266609, "wait_on_page_bit" },
 	{ 0xcde172ac, "radix_tree_gang_lookup_tag_slot" },
 	{ 0xa07217e7, "skb_pull" },
 	{ 0x62f623a9, "unlock_page" },
@@ -159,4 +158,4 @@ __attribute__((section(".modinfo"))) =
 "depends=";
 
 
-MODULE_INFO(srcversion, "983423DA42FE9C3966FB8C4");
+MODULE_INFO(srcversion, "354140BB0B0BBB82689AB05");

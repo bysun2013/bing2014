@@ -343,7 +343,6 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 	loff_t ppos = tio->offset;
 	sector_t lba, alba, lba_off;
 	u64 page_index;
-	assert(ppos%512==0);
 	
 	/* Main processing loop */
 	while (size && tio_index < tio->pg_cnt) {
@@ -391,12 +390,14 @@ again:
 
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |=bitmap;
-					//iet_set_page_tag(iet_page, IETCACHE_TAG_DIRTY);
+					iet_set_page_tag(iet_page, IETCACHE_TAG_DIRTY);
 					
 					unlock_page(iet_page->page);
 					
 					add_to_lru_list(&iet_page->lru_list);
+#ifdef WRITEBACK_LIST
 					add_to_wb_list(&iet_page->wb_list);
+#endif					
 					printk(KERN_ALERT"WRITE MISS\n");
 				}else{		/* Write Hit */
 
@@ -407,15 +408,16 @@ again:
 
 					iet_page->valid_bitmap |= bitmap;
 					iet_page->dirty_bitmap |= bitmap;
-					//iet_set_page_tag(iet_page, IETCACHE_TAG_DIRTY);
+					iet_set_page_tag(iet_page, IETCACHE_TAG_DIRTY);
 					
 					 mutex_unlock(&iet_page->write);
 					
 					unlock_page(iet_page->page);
 					
 					update_lru_list(&iet_page->lru_list);
+#ifdef WRITEBACK_LIST
 					add_to_wb_list(&iet_page->wb_list);
-
+#endif
 					printk(KERN_ALERT"WRITE HIT\n");
 				}
 				bytes-=current_bytes;
