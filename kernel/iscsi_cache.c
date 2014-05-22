@@ -25,6 +25,7 @@
 
 /* param of reserved memory at boot*/
 extern unsigned int iet_mem_size;
+extern unsigned long iet_mem_goal; /* preferred starting address of the region */
 extern char *iet_mem_virt;
 
 static struct task_struct *iet_wb_thread;
@@ -304,7 +305,9 @@ int iet_cache_init(void)
 	reserve_phys_addr=virt_to_phys(iet_mem_virt);
 	printk(KERN_ALERT"reserve_virt_addr = 0x%lx reserve_phys_addr = 0x%lx \n", 
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr);
-
+	
+	BUG_ON(reserve_phys_addr != iet_mem_goal);
+	
 	if((err=iet_page_init())< 0)
 		return err;
 
