@@ -174,9 +174,6 @@ struct iet_volume {
 	struct reservation reservation;
 	spinlock_t reserve_lock;
 
-	struct radix_tree_root page_tree;	/* radix tree of all cache pages */
-	spinlock_t	 tree_lock;	 /* and lock protecting it */
-
 	unsigned long flags;
 
 	struct iotype *iotype;
