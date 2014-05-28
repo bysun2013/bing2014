@@ -31,12 +31,16 @@ static struct task_struct *iscsi_wb_thread;
 static struct list_head lru;
 static spinlock_t		lru_lock;
 
+/* list all of volume, which use cache. */
+static struct list_head iscsi_cache_list;
+static struct mutex iscsi_cache_list_lock;
+
 /* bitmap is 7-0, Notice the sequence of bitmap*/
 char get_bitmap(sector_t lba_off, u32 num){
 	char bitmap=0x00;
 	int i;
 	
-	BUG_ON(lba_off+num<=8);
+	BUG_ON(lba_off+num > 8);
 	for(i=0;i<num;i++){
 		bitmap= bitmap | (1<<(lba_off+i));
 	}
@@ -145,7 +149,7 @@ again:
 	spin_lock(&lru_lock);
 	list_for_each_safe(list, tmp, &lru){
 		iscsi_page=list_entry(list, struct iscsi_cache_page, lru_list);
-		BUG_ON(iscsi_page != NULL);
+		BUG_ON(iscsi_page == NULL);
 		if((iscsi_page->dirty_bitmap & 0xff) == 0){
 			list_del_init(list);
 			iscsi_page->valid_bitmap=0x00;
@@ -175,8 +179,8 @@ void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page,
 	char *dest, *source;
 	unsigned int i=0;
 	
-	BUG_ON(page);
-	BUG_ON(iscsi_page);
+	BUG_ON(page == NULL);
+	BUG_ON(iscsi_page == NULL);
 	
 	if(!bitmap)
 		return;
@@ -203,8 +207,8 @@ void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page,
 	char *dest, *source;
 	unsigned int i=0;
 	
-	BUG_ON(page);
-	BUG_ON(iscsi_page);
+	BUG_ON(page  == NULL);
+	BUG_ON(iscsi_page == NULL);
 	
 	if(!bitmap)
 		return;
@@ -264,31 +268,63 @@ int iscsi_del_page(struct iscsi_cache_page *iscsi_page)
 }
 EXPORT_SYMBOL_GPL(iscsi_del_page);
 
+int writeback_all(void){
+	struct iscsi_cache *iscsi_cache;
+	mutex_lock(&iscsi_cache_list_lock);
+	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
+		mutex_lock(&iscsi_cache->mutex);
+		mutex_unlock(&iscsi_cache_list_lock);
+		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_NONE);
+		mutex_unlock(&iscsi_cache->mutex);
+
+		mutex_lock(&iscsi_cache_list_lock);
+	}
+	mutex_unlock(&iscsi_cache_list_lock);
+	
+	return 0;
+}
+
 static int iscsi_page_init(void)
 {
 	iscsi_page_cache = KMEM_CACHE(iscsi_cache_page, 0);
 	return  iscsi_page_cache ? 0 : -ENOMEM;
 }
 
-void init_iscsi_cache(struct iscsi_cache *iscsi_cache)
+struct iscsi_cache* init_iscsi_cache(void)
 {
-	if(!iscsi_cache)
-		return;
+	struct iscsi_cache *iscsi_cache;
 	
-	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
+	iscsi_cache=kmalloc(sizeof(*iscsi_cache),GFP_KERNEL);
+	if(!iscsi_cache)
+		return NULL;
+
 	spin_lock_init(&iscsi_cache->tree_lock);
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
+	mutex_init(&iscsi_cache->mutex);
+	
+	mutex_lock(&iscsi_cache_list_lock);
+	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
+	mutex_unlock(&iscsi_cache_list_lock);
+
+	return iscsi_cache;
 }
 
 void del_iscsi_cache(struct iscsi_cache *iscsi_cache)
 {
 	if(!iscsi_cache)
 		return;
+	mutex_lock(&iscsi_cache_list_lock);
+	mutex_lock(&iscsi_cache->mutex);
 	
 	list_del_init(&iscsi_cache->list);
+	
+	mutex_unlock(&iscsi_cache->mutex);
+	mutex_unlock(&iscsi_cache_list_lock);
+	
+	kfree(iscsi_cache);
 }
 
-static int iscsi_global_cache_init(void)
+int iscsi_global_cache_init(void)
 {
 	int err = 0;
 	unsigned int i;
@@ -313,7 +349,7 @@ static int iscsi_global_cache_init(void)
 	
 	
 	INIT_LIST_HEAD(&iscsi_cache_list);
-	mutex_init(&iscsi_cache_list_mutex);
+	mutex_init(&iscsi_cache_list_lock);
 
 	for(i=0;i<iscsi_page_num;i++){
 		struct iscsi_cache_page *iscsi_page;
@@ -322,6 +358,7 @@ static int iscsi_global_cache_init(void)
 		iscsi_page=kmem_cache_alloc(iscsi_page_cache, GFP_KERNEL);
 		
 		iscsi_page->iscsi_cache=NULL;
+		iscsi_page->bdev=NULL;
 		iscsi_page->index=-1; 
 		
 		iscsi_page->dirty_bitmap=iscsi_page->valid_bitmap=0x00;
@@ -330,9 +367,6 @@ static int iscsi_global_cache_init(void)
 		spin_lock_init(&iscsi_page->page_lock);
 		iscsi_page->flag=0;
 		mutex_init(&iscsi_page->write);
-#ifdef WRITEBACK_LIST		
-		INIT_LIST_HEAD(&iscsi_page->wb_list);
-#endif
 		list_add_tail(&iscsi_page->lru_list, &lru);
 		
 		tmp_addr = tmp_addr+ PAGE_SIZE;
@@ -342,7 +376,7 @@ static int iscsi_global_cache_init(void)
 	return err;
 }
 
-static void iscsi_global_cache_exit(void)
+void iscsi_global_cache_exit(void)
 {
 	
 	struct list_head *list, *tmp;
@@ -360,6 +394,7 @@ static void iscsi_global_cache_exit(void)
 	kmem_cache_destroy(iscsi_page_cache);
 }
 
+/*
 module_init(iscsi_global_cache_init);
 module_exit(iscsi_global_cache_exit);
 
@@ -367,3 +402,4 @@ MODULE_VERSION("0.1");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("iSCSI Cache");
 MODULE_AUTHOR("Bing Sun <b.y.sun.cn@gmail.com>");
+*/

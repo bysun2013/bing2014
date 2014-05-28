@@ -2,11 +2,6 @@
 
 #define PVEC_SIZE		16
 
-enum writeback_sync_modes {
-	ISCSI_WB_SYNC_NONE,	/* Don't wait on anything */
-	ISCSI_WB_SYNC_ALL,	/* Wait on every mapping */
-};
-
 void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
 {
 	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
@@ -158,7 +153,7 @@ continue_unlock:
 			printk(KERN_ALERT"WRITE BACK one page. page index is %llu, dirty is %x.\n", 
 				(unsigned long long)iscsi_page->index, iscsi_page->dirty_bitmap);
 
-			err = blockio_start_rw_page_blocks(iscsi_page, WRITE);
+			err = blockio_start_rw_page_blocks(iscsi_page, iscsi_page->bdev, WRITE);
 			if (unlikely(err)) {
 				printk(KERN_ALERT"writeback_lun: Error when submit blocks to device.\n");
 				mutex_unlock(&iscsi_page->write);
@@ -177,15 +172,6 @@ continue_unlock:
 	return err;
 }
 
-int writeback_all(void){
-	struct iscsi_cache *iscsi_cache;
-	mutex_lock(&iscsi_cache_list_mutex);
-	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
-		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_NONE);
-	}
-	mutex_lock(&iscsi_cache_list_mutex);
-	return 0;
-}
 
 int writeback_thread(void *args){
 	do{

@@ -12,8 +12,8 @@
 
 #define	MAX_NR_TARGETS	(1UL << 30)
 
-LIST_HEAD(target_list);
-DEFINE_MUTEX(target_list_mutex);
+static LIST_HEAD(target_list);
+static DEFINE_MUTEX(target_list_mutex);
 static u32 next_target_id;
 static u32 nr_targets;
 

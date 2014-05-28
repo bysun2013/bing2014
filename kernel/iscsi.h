@@ -23,6 +23,8 @@
 #include "compat.h"
 #include "persist.h"
 
+#include "cache/iscsi_cache.h"
+
 #define IET_SENSE_BUF_SIZE      18
 
 
@@ -170,7 +172,12 @@ struct iet_volume {
 
 	u32 blk_shift;
 	u64 blk_cnt;
-
+	
+	/* Be careful!Defined in iscsi_cache module, it must be initialized 
+		by init_iscsi_cache, and deleted by del_iscsi_cache 
+	 */
+	struct iscsi_cache *iscsi_cache; 
+	
 	struct reservation reservation;
 	spinlock_t reserve_lock;
 
