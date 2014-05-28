@@ -280,7 +280,7 @@ static int iscsi_page_init(void)
 	return  iscsi_page_cache ? 0 : -ENOMEM;
 }
 
-struct iscsi_cache* init_iscsi_cache(void)
+void* init_iscsi_cache(void)
 {
 	struct iscsi_cache *iscsi_cache;
 	
@@ -296,28 +296,30 @@ struct iscsi_cache* init_iscsi_cache(void)
 	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
 	mutex_unlock(&iscsi_cache_list_lock);
 
-	return iscsi_cache;
+	return (void *)iscsi_cache;
 }
 EXPORT_SYMBOL_GPL(init_iscsi_cache);
 
-void del_iscsi_cache(struct iscsi_cache *iscsi_cache)
+void del_iscsi_cache(void *iscsi_cachep)
 {
+	struct iscsi_cache *iscsi_cache=(struct iscsi_cache *)iscsi_cachep;
 	if(!iscsi_cache)
 		return;
+	
 	mutex_lock(&iscsi_cache_list_lock);
 	mutex_lock(&iscsi_cache->mutex);
-	
 	list_del_init(&iscsi_cache->list);
-	
 	mutex_unlock(&iscsi_cache->mutex);
 	mutex_unlock(&iscsi_cache_list_lock);
+
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL);
 	
 	kfree(iscsi_cache);
 }
 
 EXPORT_SYMBOL_GPL(del_iscsi_cache);
 
-int iscsi_global_cache_init(void)
+static int iscsi_global_cache_init(void)
 {
 	int err = 0;
 	unsigned int i;
@@ -329,8 +331,8 @@ int iscsi_global_cache_init(void)
 	iscsi_page_num = (iet_mem_size)/PAGE_SIZE;
 	tmp_addr = iet_mem_virt;
 	
-	printk(KERN_ALERT"reserve_virt_addr = 0x%lx reserve_phys_addr = 0x%lx \n", 
-		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr);
+	printk(KERN_ALERT"reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
+		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
 	
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
 	
@@ -369,7 +371,7 @@ int iscsi_global_cache_init(void)
 	return err;
 }
 
-void iscsi_global_cache_exit(void)
+static void iscsi_global_cache_exit(void)
 {
 	
 	struct list_head *list, *tmp;
@@ -387,7 +389,6 @@ void iscsi_global_cache_exit(void)
 	kmem_cache_destroy(iscsi_page_cache);
 }
 
-/*
 module_init(iscsi_global_cache_init);
 module_exit(iscsi_global_cache_exit);
 
@@ -395,4 +396,4 @@ MODULE_VERSION("0.1");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("iSCSI Cache");
 MODULE_AUTHOR("Bing Sun <b.y.sun.cn@gmail.com>");
-*/
+

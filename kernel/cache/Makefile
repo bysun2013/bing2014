@@ -7,16 +7,7 @@
 #
 # Note 2! The CFLAGS definitions are now in the main makefile.
 
-ifneq ($(KERNELRELEASE) , )
-	obj-m := iscsi_caches.o
-else
-	KERNELDIR ?= /lib/modules/$(shell uname -r)/build
-	PWD := $(shell pwd)
 
-default:
-	make -C $(KERNELDIR) M=$(PWD) modules
-
-endif
-
-iscsi_caches-objs	:= iscsi_cache.o writeback.o
+obj-m		+= iscsi_caches.o
+iscsi_caches-objs	:= iscsi_cache.o writeback.o cache_rw.o
 

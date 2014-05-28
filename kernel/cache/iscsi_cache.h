@@ -4,8 +4,8 @@
  * Released under the terms of the GNU GPL v2.0.
  */
 
-#ifndef ISCSI_CACHE_H
-#define ISCSI_CACHE_H
+#ifndef CACHE_ISCSI_CACHE_H
+#define CACHE_ISCSI_CACHE_H
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -76,17 +76,14 @@ int iscsi_del_page(struct iscsi_cache_page *iscsi_page);
 struct iscsi_cache_page* iscsi_get_free_page(void);
 struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index);
 
-struct iscsi_cache * init_iscsi_cache(void);
-void del_iscsi_cache(struct iscsi_cache *iscsi_cache);
-
-int iscsi_global_cache_init(void);
-void iscsi_global_cache_exit(void);
+void * init_iscsi_cache(void);
+void del_iscsi_cache(void *iscsi_cachep);
 
 /* cache_rw.c */
 int blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev, int rw);
-int iscsi_read_from_cache(struct iscsi_cache *iscsi_cache, struct block_device *bdev, pgoff_t page_index, struct page* page, 
+int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
-int iscsi_write_into_cache(struct iscsi_cache *iscsi_cache, struct block_device *bdev, pgoff_t page_index, struct page* page, 
+int iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
 
 

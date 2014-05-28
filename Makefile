@@ -262,7 +262,7 @@ install-files: install-usr install-etc install-doc install-kernel
 
 install: install-files depmod
 
-install-kernel: kernel/iscsi_trgt.ko
+install-kernel: kernel/iscsi_trgt.ko kernel/cache/iscsi_caches.ko
 	@if [ -d $(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/$(KVER) ]; then \
 		if [ -f /etc/debian_version ]; then \
 			find $(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/$(KVER) \
@@ -276,6 +276,8 @@ install-kernel: kernel/iscsi_trgt.ko
 	fi
 	@install -vD -m 644 kernel/iscsi_trgt.ko \
 		$(DESTDIR)$(INSTALL_MOD_PATH)$(KMOD)/iscsi/iscsi_trgt.ko
+	@install -vD -m 644 kernel/cache/iscsi_caches.ko \
+		$(DESTDIR)$(INSTALL_MOD_PATH)$(KMOD)/iscsi/iscsi_caches.ko
 
 install-usr: usr/ietd usr/ietadm
 	@install -vD usr/ietd $(DESTDIR)/usr/sbin/ietd

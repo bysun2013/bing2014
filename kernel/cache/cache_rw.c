@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
+ *
+ * Released under the terms of the GNU GPL v2.0.
+ */
+
 #include <linux/blkdev.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -211,8 +217,10 @@ error:
 	return err;
 }
 
-int iscsi_read_from_cache(struct iscsi_cache *iscsi_cache, struct block_device *bdev, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk){
+int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
+		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
+{
+	struct iscsi_cache * iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
 	struct iscsi_cache_page *iet_page;
 	int err=0;
 again:
@@ -269,9 +277,10 @@ again:
 
 EXPORT_SYMBOL_GPL(iscsi_read_from_cache);
 
-int  iscsi_write_into_cache(struct iscsi_cache *iscsi_cache, struct block_device *bdev, pgoff_t page_index, struct page* page, 
+int  iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
 {
+		struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
 		struct iscsi_cache_page *iet_page;
 		int err=0;
 again:

@@ -3,6 +3,7 @@
 *.cmd
 *.ko
 *.mod
+*.mod.c
 *.order
 
 # Libraries
@@ -19,3 +20,5 @@
 *.exe
 *.out
 *.app
+ietadm
+ietd

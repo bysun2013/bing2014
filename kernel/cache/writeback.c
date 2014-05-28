@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
+ *
+ * Released under the terms of the GNU GPL v2.0.
+ */
+
 #include "iscsi_cache.h"
 
 #define PVEC_SIZE		16
@@ -92,7 +98,8 @@ repeat:
 	return ret;
 }
 
-int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode){
+int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode)
+{
 	int err=0;
 	int done = 0;
 	int nr_pages;
@@ -173,7 +180,8 @@ continue_unlock:
 }
 
 
-int writeback_thread(void *args){
+int writeback_thread(void *args)
+{
 	do{
 		writeback_all();
 		set_current_state(TASK_INTERRUPTIBLE);
