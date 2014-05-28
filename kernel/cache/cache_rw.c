@@ -98,7 +98,7 @@ out:
 }
 
 
-int
+static int
 blockio_start_rw_page(struct iscsi_cache_page *iet_page,  struct block_device *bdev,  int rw)
 {
 	struct tio_work *tio_work;
@@ -267,6 +267,7 @@ again:
 	return err;
 }
 
+EXPORT_SYMBOL_GPL(iscsi_read_from_cache);
 
 int  iscsi_write_into_cache(struct iscsi_cache *iscsi_cache, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
@@ -327,4 +328,6 @@ again:
 		}
 		return err;
 }
+EXPORT_SYMBOL_GPL(iscsi_write_into_cache);
+
 

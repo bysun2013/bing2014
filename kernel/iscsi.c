@@ -13,7 +13,6 @@
 #include "iscsi.h"
 #include "iscsi_dbg.h"
 #include "iotype.h"
-#include "iscsi_cache.h"
 
 unsigned long debug_enable_flags;
 unsigned long worker_thread_pool_size;

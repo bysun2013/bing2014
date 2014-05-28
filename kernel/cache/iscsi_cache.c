@@ -120,15 +120,12 @@ void add_to_lru_list(struct list_head *list)
 	list_add_tail(list, &lru);
 	spin_unlock(&lru_lock);
 }
-EXPORT_SYMBOL_GPL(add_to_lru_list);
-
 void throw_to_lru_list(struct list_head *list)
 {
 	spin_lock(&lru_lock);
 	list_add(list, &lru);
 	spin_unlock(&lru_lock);
 }
-EXPORT_SYMBOL_GPL(throw_to_lru_list);
 
 void update_lru_list(struct list_head *list)
 {
@@ -137,7 +134,6 @@ void update_lru_list(struct list_head *list)
 	list_add_tail(list, &lru);
 	spin_unlock(&lru_lock);
 }
-EXPORT_SYMBOL_GPL(update_lru_list);
 
 /* the free page is isolated, NOT list to LRU */
 struct iscsi_cache_page* iscsi_get_free_page(void)
@@ -171,7 +167,6 @@ again:
 
 	return iscsi_page;
 }
-EXPORT_SYMBOL_GPL(iscsi_get_free_page);
 
 void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
@@ -199,7 +194,6 @@ void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page,
 	}
 	return;
 }
-EXPORT_SYMBOL_GPL(copy_tio_to_cache);
 
 void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
@@ -228,7 +222,6 @@ void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page,
 	return;
 
 }
-EXPORT_SYMBOL_GPL(copy_cache_to_tio);
 
 int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* iscsi_page)
 {
@@ -241,7 +234,6 @@ int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* is
 	}
 	return error;
 }
-EXPORT_SYMBOL_GPL(iscsi_add_page);
 
 struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index)
 {
@@ -252,7 +244,6 @@ struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pg
 	
 	return iscsi_page;
 }
-EXPORT_SYMBOL_GPL(iscsi_find_get_page);
 
 int iscsi_del_page(struct iscsi_cache_page *iscsi_page)
 {
@@ -266,7 +257,6 @@ int iscsi_del_page(struct iscsi_cache_page *iscsi_page)
 	
 	return 0;
 }
-EXPORT_SYMBOL_GPL(iscsi_del_page);
 
 int writeback_all(void){
 	struct iscsi_cache *iscsi_cache;
@@ -308,6 +298,7 @@ struct iscsi_cache* init_iscsi_cache(void)
 
 	return iscsi_cache;
 }
+EXPORT_SYMBOL_GPL(init_iscsi_cache);
 
 void del_iscsi_cache(struct iscsi_cache *iscsi_cache)
 {
@@ -323,6 +314,8 @@ void del_iscsi_cache(struct iscsi_cache *iscsi_cache)
 	
 	kfree(iscsi_cache);
 }
+
+EXPORT_SYMBOL_GPL(del_iscsi_cache);
 
 int iscsi_global_cache_init(void)
 {

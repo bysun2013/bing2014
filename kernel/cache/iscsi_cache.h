@@ -58,6 +58,7 @@ struct iscsi_cache{
 	struct mutex mutex;
 };
 
+/* iscsi_cache.c */
 char get_bitmap(sector_t lba_off, u32 num);
 
 void add_to_lru_list(struct list_head *list);
@@ -75,31 +76,26 @@ int iscsi_del_page(struct iscsi_cache_page *iscsi_page);
 struct iscsi_cache_page* iscsi_get_free_page(void);
 struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index);
 
-int blockio_start_rw_page_blocks(struct iscsi_cache_page * iscsi_page,  struct block_device *bdev, int rw);
-int blockio_start_rw_page(struct iscsi_cache_page *iet_page,  struct block_device *bdev,  int rw);
+struct iscsi_cache * init_iscsi_cache(void);
+void del_iscsi_cache(struct iscsi_cache *iscsi_cache);
 
+int iscsi_global_cache_init(void);
+void iscsi_global_cache_exit(void);
+
+/* cache_rw.c */
+int blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev, int rw);
 int iscsi_read_from_cache(struct iscsi_cache *iscsi_cache, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
 int iscsi_write_into_cache(struct iscsi_cache *iscsi_cache, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
 
 
-
+/* writeback.c */
+void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
+void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
 int writeback_thread(void *args);
 int writeback_all(void);
 int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode);
-
-
-void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
-void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
-
-struct iscsi_cache * init_iscsi_cache(void);
-void del_iscsi_cache(struct iscsi_cache *iscsi_cache);
-
-
-int iscsi_global_cache_init(void);
-void iscsi_global_cache_exit(void);
-
 
 
 #endif
