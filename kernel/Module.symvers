@@ -1,5 +1,0 @@
-0x07f345c0	get_bitmap	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
-0x727b9c73	init_iscsi_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
-0x77bb1764	iscsi_read_from_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
-0x7ad7ec66	del_iscsi_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
-0xba705642	iscsi_write_into_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL

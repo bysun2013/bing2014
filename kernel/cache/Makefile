@@ -9,5 +9,7 @@
 
 
 obj-m		+= iscsi_caches.o
-iscsi_caches-objs	:= iscsi_cache.o writeback.o cache_rw.o
+iscsi_caches-objs	:= cache.o writeback.o cache_rw.o 
+
+#			cache_conn.o cache_receiver.o cache_sender.o
 

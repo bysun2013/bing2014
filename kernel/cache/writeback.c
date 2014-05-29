@@ -4,7 +4,7 @@
  * Released under the terms of the GNU GPL v2.0.
  */
 
-#include "iscsi_cache.h"
+#include "cache.h"
 
 #define PVEC_SIZE		16
 

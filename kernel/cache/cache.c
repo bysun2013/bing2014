@@ -16,10 +16,11 @@
 #include <asm/page.h>
 #include <linux/list.h>
 
-#include "iscsi_cache.h"
+#include "cache.h"
 
+unsigned long cache_debug_enable_flags = 1;
 
-/* param of reserved memory at boot*/
+/* param of reserved memory at boot */
 extern unsigned int iet_mem_size;
 //extern unsigned long iscsi_mem_goal; /* preferred starting address of the region */
 extern char *iet_mem_virt;
@@ -34,6 +35,8 @@ static spinlock_t		lru_lock;
 /* list all of volume, which use cache. */
 static struct list_head iscsi_cache_list;
 static struct mutex iscsi_cache_list_lock;
+
+//struct cache_connection *cache_conn;
 
 /* bitmap is 7-0, Notice the sequence of bitmap*/
 char get_bitmap(sector_t lba_off, u32 num){
@@ -333,7 +336,8 @@ static int iscsi_global_cache_init(void)
 	
 	printk(KERN_ALERT"reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
-	
+
+	BUG_ON(PAGE_SIZE > 4096);
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
 	
 	if((err=iscsi_page_init())< 0)
@@ -367,7 +371,9 @@ static int iscsi_global_cache_init(void)
 		tmp_addr = tmp_addr+ PAGE_SIZE;
 	}
 	
-	iscsi_wb_thread=kthread_run(writeback_thread, NULL, "iscsi_wb_thread");
+	iscsi_wb_thread=kthread_run(writeback_thread, NULL, "cache_wb_thread");
+
+	//cache_conn = cache_conn_create("cache_conn");
 	return err;
 }
 
@@ -379,6 +385,8 @@ static void iscsi_global_cache_exit(void)
 
 	kthread_stop(iscsi_wb_thread);
 	writeback_all();
+
+	//cache_conn_destroy();
 	
 	list_for_each_safe(list, tmp, &lru){
 		iscsi_page = list_entry(list, struct iscsi_cache_page, lru_list);

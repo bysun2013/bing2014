@@ -9,7 +9,7 @@
 #include <linux/slab.h>
 #include <linux/completion.h>
 
-#include "iscsi_cache.h"
+#include "cache.h"
 
 struct tio_work {
 	atomic_t error;
@@ -231,7 +231,7 @@ again:
 		
 		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
 		
-		BUG_ON((iet_page->valid_bitmap & bitmap)==0);
+		BUG_ON((iet_page->valid_bitmap & bitmap)==bitmap);
 
 		unlock_page(iet_page->page);
 		
