@@ -53,11 +53,13 @@ blockio_start_rw_single_segment(struct iscsi_cache_page *iet_page,  struct block
 	if(blocks==0)
 		return err;
 	
-	cache_info("submit blocks to device, start=%d, sizes=%d\n", start, blocks);
+	cache_dbg("submit blocks to device, start=%d, sizes=%d\n", start, blocks);
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
-	if (!tio_work)
-		return -ENOMEM;
-
+	if (!tio_work){
+		err = -ENOMEM;
+		goto out;
+	}
+	
 	atomic_set(&tio_work->error, 0);
 	atomic_set(&tio_work->bios_remaining, 0);
 	init_completion(&tio_work->tio_complete);
@@ -97,12 +99,11 @@ blockio_start_rw_single_segment(struct iscsi_cache_page *iet_page,  struct block
 	return err;
 out:
 	bio_put(bio);
-
 	kfree(tio_work);
+	cache_err("Error occurs when page segment r/w.\n");
 
 	return err;
 }
-
 
 static int
 blockio_start_rw_page(struct iscsi_cache_page *iet_page,  struct block_device *bdev,  int rw)
@@ -155,30 +156,24 @@ blockio_start_rw_page(struct iscsi_cache_page *iet_page,  struct block_device *b
 	return err;
 out:
 	bio_put(bio);
-	cache_alert("Error when rw page.\n");
-
 	kfree(tio_work);
-
+	cache_err("Error occurs when page r/w.\n");
+	
 	return err;
 }
 
-/**
-* blocks in a page aren't always valid,so when writeback
-* submit to block device separately is necessary.
-*
-* Just used in writeback dirty blocks.
-*/
-int
-blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev, int rw)
+
+static int
+_blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, 
+	struct block_device *bdev, unsigned char bitmap, int rw)
 {
-	char bitmap=iet_page->dirty_bitmap;
 	unsigned int i=0, start=0, last=1, sizes=0;
 	int err=0;
 	int tmp=1;
 
 	/* it's more possible, so detect it first. */
-	if((iet_page->dirty_bitmap & 0xff) == 0xff){
-		err=blockio_start_rw_page(iet_page, bdev, WRITE);
+	if((bitmap & 0xff) == 0xff){
+		err=blockio_start_rw_page(iet_page, bdev, rw);
 		return err;
 	}
 	
@@ -213,10 +208,40 @@ blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, struct block_dev
 	return 0;
 	
 error:	
-	cache_alert("Error when submit blocks to device.\n");
+	cache_err("Error occurs when submit blocks to device.\n");
 	return err;
 }
 
+/**
+* blocks in a page aren't always valid,so when writeback
+* submit to block device separately is necessary.
+*
+* Just used in writeback dirty blocks.
+*/
+int
+blockio_start_write_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev)
+{
+	int err;
+	char bitmap=iet_page->dirty_bitmap;
+	
+	err = _blockio_start_rw_page_blocks(iet_page, bdev, bitmap, WRITE);
+	return err;
+}
+/** 
+* If valid bitmap is not agreed to bitmap to read, then read the missed blocks.
+*/
+static int check_blocks_to_read(struct iscsi_cache_page *iet_page, struct block_device *bdev,
+		unsigned char valid, unsigned char read)
+{
+	unsigned char miss;
+	int err;
+	miss = valid | read;
+	miss = miss ^ valid;
+
+	err = _blockio_start_rw_page_blocks(iet_page, bdev, miss, READ);
+
+	return err;
+}
 int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
 {
@@ -229,16 +254,24 @@ again:
 	if(iet_page){	/* Read Hit */
 		lock_page(iet_page->page);
 		
-		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
-		
 		if((iet_page->valid_bitmap & bitmap) != bitmap){
-			cache_alert("Bitmap is wrong.\n");
+			cache_dbg("Valid bitmap is not agreed to bitmap to read.\n");
+			
+			err=check_blocks_to_read(iet_page, bdev, iet_page->valid_bitmap, bitmap);
+			if(unlikely(err)){
+				cache_err("Error occurs when read missed blocks.\n");
+				unlock_page(iet_page->page);
+				return err;
+			}
+			iet_page->valid_bitmap = iet_page->valid_bitmap & bitmap;
 		}
+		
+		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
 
 		unlock_page(iet_page->page);
 		
 		update_lru_list(&iet_page->lru_list);
-		cache_info("READ HIT\n");	
+		cache_dbg("READ HIT\n");	
 	}else{	/* Read Miss, no page */
 		iet_page=iscsi_get_free_page(iscsi_cache);
 
@@ -256,7 +289,7 @@ again:
 				iet_page=NULL;
 				goto again;
 			}
-			cache_alert("Error, but reason is not clear.\n");
+			cache_err("Error occurs when read, but reason is not clear.\n");
 			unlock_page(iet_page->page);
 			return err;
 		}
@@ -272,7 +305,7 @@ again:
 
 		add_to_lru_list(&iet_page->lru_list);
 		
-		cache_info("READ MISS, no page\n");
+		cache_dbg("READ MISS, no page\n");
 		}
 	return err;
 }
@@ -304,7 +337,7 @@ again:
 					iet_page=NULL;
 					goto again;
 				}
-				cache_alert("Error, but reason is not clear.\n");
+				cache_err("Error occurs when write, but reason is not clear.\n");
 				unlock_page(iet_page->page);
 				return err;
 			}
@@ -322,7 +355,7 @@ again:
 			iscsi_cache->dirty_pages++;
 			
 			add_to_lru_list(&iet_page->lru_list);
-			cache_info("WRITE MISS\n");
+			cache_dbg("WRITE MISS\n");
 		}else{		/* Write Hit */
 
 			lock_page(iet_page->page);
@@ -342,7 +375,7 @@ again:
 			unlock_page(iet_page->page);
 			
 			update_lru_list(&iet_page->lru_list);
-			cache_info("WRITE HIT\n");
+			cache_dbg("WRITE HIT\n");
 		}
 		return err;
 }

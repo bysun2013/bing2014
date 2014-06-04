@@ -10,48 +10,54 @@
 /**
   * set flag to zero, if you don't want to output much log.
 */
-#define CACHE_DEBUG_ENABLE_FLAGS 1
+#define CACHE_DEBUG_ENABLE_FLAGS 0
 
 #define PFX "[iSCSI_Cache] "
 
+#define eprintk_detail(level, fmt, args...)	\
+	do {								\
+		printk(level PFX "%s(%d) " fmt,	\
+		       __FUNCTION__,				\
+		       __LINE__,					\
+		       ##args);					\
+	} while (0)
+
+#define eprintk(level, fmt, args...)			\
+	do {								\
+		printk(level PFX fmt,			\
+		       ##args);					\
+	} while (0)
+
 #define dprintk_detail(level, fmt, args...)					\
-	do {								\
-		if (CACHE_DEBUG_ENABLE_FLAGS) {			\
-			printk(level PFX "%s(%d) " fmt,		\
-			       __FUNCTION__,				\
-			       __LINE__,				\
-			       ##args);					\
-		}							\
+	do { 							   \
+		if (CACHE_DEBUG_ENABLE_FLAGS) {		   \
+			printk(level PFX "%s(%d) " fmt,	   \
+				__FUNCTION__, 			   \
+				__LINE__, 			   \
+				##args);					\
+		}						   \
 	} while (0)
-
+			   
 #define dprintk(level, fmt, args...)					\
-	do {								\
-		if (CACHE_DEBUG_ENABLE_FLAGS) {			\
-			printk(level PFX fmt,		\
-			       ##args);					\
-		}							\
+	do { 							   \
+		if (CACHE_DEBUG_ENABLE_FLAGS) {		   \
+		   	printk(level PFX fmt,	   \
+				##args);					\
+	  	}						   \
 	} while (0)
-
-#define cache_err(fmt, args...) \
-	dprintk(KERN_ERR, fmt, ##args)
-#define cache_alert(fmt, args...) \
-	dprintk(KERN_ALERT, fmt, ##args)
-#define cache_emerg(fmt, args...) \
-	dprintk(KERN_EMERG, fmt, ##args)
-
-#ifndef CACHE_DEBUG_ENABLE_FLAGS
-#undef dprintk_detail(level, fmt, args...)
-#define dprintk_detail(level, fmt, args...)
-
-#undef dprintk(level, fmt, args...)
-#define dprintk(level, fmt, args...)
-#endif
 
 #define cache_dbg(fmt, args...) \
 	dprintk(KERN_DEBUG, fmt, ##args)
 #define cache_info(fmt, args...) \
-	dprintk(KERN_INFO, fmt, ##args)
+	eprintk(KERN_INFO, fmt, ##args)
 #define cache_warn(fmt, args...) \
-	dprintk(KERN_WARNING, fmt,##args)
+	eprintk(KERN_WARNING, fmt,##args)
+#define cache_err(fmt, args...) \
+	eprintk_detail(KERN_ERR, fmt, ##args)
+#define cache_alert(fmt, args...) \
+	eprintk(KERN_ALERT, fmt, ##args)
+#define cache_emerg(fmt, args...) \
+	eprintk(KERN_EMERG, fmt, ##args)
+
 
 #endif

@@ -37,9 +37,9 @@ struct mutex iscsi_cache_list_lock;
 //struct cache_connection *cache_conn;
 
 /* bitmap is 7-0, Notice the sequence of bitmap*/
-char get_bitmap(sector_t lba_off, u32 num){
+unsigned char get_bitmap(sector_t lba_off, u32 num){
 	unsigned char a, b;
-	char bitmap = 0xff;
+	unsigned char bitmap = 0xff;
 
 	BUG_ON(lba_off+num > 8);
 	
@@ -68,11 +68,11 @@ static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache
 		} else {
 			page->iscsi_cache = NULL;
 			spin_unlock_irq(&iscsi_cache->tree_lock);
-			cache_alert("add_to_iscsi_rdix error 1!\n");
+			cache_err("Error occurs when add page to cache!\n");
 		}
 		radix_tree_preload_end();
 	}else
-		cache_alert("add_to_iscsi_radix error 2!\n");
+		cache_err("Error occurs when preload cache!\n");
 
 	return error;
 }
@@ -105,11 +105,8 @@ repeat:
 		if (radix_tree_deref_retry(iscsi_page))
 			goto repeat;
 
-		/*
-		 * Has the page moved?
-		 */
 		if (unlikely(iscsi_page != *pagep)) {
-			cache_alert("Has the page moved.\n");
+			cache_warn("page has been moved.\n");
 			goto repeat;
 		}
 	}
@@ -165,7 +162,7 @@ again:
 		wakeup_cache_flusher(iscsi_cache);
 
 	if(iscsi_page==NULL){
-		cache_alert("[ALERT] iscsi cache page is used up! Wait for write back...\n");
+		cache_err("Cache is used up! Wait for write back...\n");
 		wake_up_process(iscsi_wb_forker);
 		writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 		goto again;
@@ -240,7 +237,7 @@ int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* is
 	error=add_page_to_radix(iscsi_cache, iscsi_page, GFP_KERNEL);
 	
 	if(error <0){
-		cache_alert("iscsi_cache_add: error in adding to cache.\n");
+		cache_err("iscsi_cache_add: error in adding to cache.\n");
 	}
 	return error;
 }
@@ -335,8 +332,8 @@ static int iscsi_global_cache_init(void)
 	
 	tmp_addr = iet_mem_virt;
 
-	cache_alert("iSCSI Cache Module  - version %s\n", CACHE_VERSION);
-	cache_alert("reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
+	cache_info("iSCSI Cache Module  version %s \n", CACHE_VERSION);
+	cache_info("reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
 
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
@@ -396,6 +393,7 @@ static void iscsi_global_cache_exit(void)
 	}
 	
 	kmem_cache_destroy(iscsi_page_cache);
+	cache_info("Unload iSCSI Cache Module. All right \n");
 }
 
 module_init(iscsi_global_cache_init);

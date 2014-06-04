@@ -45,8 +45,8 @@ struct iscsi_cache_page{
 	pgoff_t	index;
 
 	/* block is 512 Byte, and page is 4KB */
-	char valid_bitmap;
-	char dirty_bitmap;
+	unsigned char valid_bitmap;
+	unsigned char dirty_bitmap;
 	
 	struct page *page;
 	spinlock_t page_lock;
@@ -95,7 +95,7 @@ struct iscsi_cache{
 };
 
 /* iscsi_cache.c */
-char get_bitmap(sector_t lba_off, u32 num);
+unsigned char get_bitmap(sector_t lba_off, u32 num);
 
 void add_to_lru_list(struct list_head *list);
 void throw_to_lru_list(struct list_head *list);
@@ -116,7 +116,7 @@ void * init_iscsi_cache(void);
 void del_iscsi_cache(void *iscsi_cachep);
 
 /* cache_rw.c */
-int blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev, int rw);
+int blockio_start_write_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev);
 int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
 int iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 

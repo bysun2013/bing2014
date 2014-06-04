@@ -207,12 +207,12 @@ continue_unlock:
 					goto continue_unlock;
 			}
 			
-			cache_info("WRITE BACK one page. page index is %llu, dirty is %x.\n", 
+			cache_dbg("WRITEBACK one page. Index is %llu, dirty bitmap is %#x.\n", 
 				(unsigned long long)iscsi_page->index, iscsi_page->dirty_bitmap);
 
-			err = blockio_start_rw_page_blocks(iscsi_page, iscsi_page->bdev, WRITE);
+			err = blockio_start_write_page_blocks(iscsi_page, iscsi_page->bdev);
 			if (unlikely(err)) {
-				cache_alert("writeback_lun: Error when submit blocks to device.\n");
+				cache_err("Error when writeback blocks to device.\n");
 				mutex_unlock(&iscsi_page->write);
 				goto continue_unlock;
 			}
