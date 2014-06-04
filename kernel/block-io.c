@@ -44,7 +44,7 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 				page_index=lba>>3;
 				alba=page_index<<3;
 				lba_off=lba-alba;
-printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned long)page_index);				
+//printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu\n", ppos, lba, (unsigned long)page_index);				
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;
@@ -93,7 +93,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 				page_index=lba>>3;
 				alba=page_index<<3;
 				lba_off=lba-alba;
-printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu", ppos, lba, (unsigned long)page_index);
+//printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu\n", ppos, lba, (unsigned long)page_index);
 				current_bytes=PAGE_SIZE-(lba_off<<9);
 				if(current_bytes>bytes)
 					current_bytes=bytes;

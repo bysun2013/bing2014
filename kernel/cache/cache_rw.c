@@ -53,7 +53,7 @@ blockio_start_rw_single_segment(struct iscsi_cache_page *iet_page,  struct block
 	if(blocks==0)
 		return err;
 	
-	printk(KERN_ALERT"submit blocks to device, start=%d, sizes=%d\n", start, blocks);
+	cache_info("submit blocks to device, start=%d, sizes=%d\n", start, blocks);
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
 	if (!tio_work)
 		return -ENOMEM;
@@ -155,7 +155,7 @@ blockio_start_rw_page(struct iscsi_cache_page *iet_page,  struct block_device *b
 	return err;
 out:
 	bio_put(bio);
-	printk(KERN_ALERT"Error when rw page.\n");
+	cache_alert("Error when rw page.\n");
 
 	kfree(tio_work);
 
@@ -213,7 +213,7 @@ blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, struct block_dev
 	return 0;
 	
 error:	
-	printk(KERN_ALERT"Error when submit blocks to device.\n");
+	cache_alert("Error when submit blocks to device.\n");
 	return err;
 }
 
@@ -231,16 +231,16 @@ again:
 		
 		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
 		
-		BUG_ON((iet_page->valid_bitmap & bitmap)==bitmap);
+		if((iet_page->valid_bitmap & bitmap) != bitmap){
+			cache_alert("Bitmap is wrong.\n");
+		}
 
 		unlock_page(iet_page->page);
 		
 		update_lru_list(&iet_page->lru_list);
-		printk(KERN_ALERT"READ HIT\n");	
-	}
-
-	if(!iet_page){	/* Read Miss, no page */
-		iet_page=iscsi_get_free_page();
+		cache_info("READ HIT\n");	
+	}else{	/* Read Miss, no page */
+		iet_page=iscsi_get_free_page(iscsi_cache);
 
 		iet_page->iscsi_cache=iscsi_cache;
 		iet_page->bdev=bdev;
@@ -256,7 +256,7 @@ again:
 				iet_page=NULL;
 				goto again;
 			}
-			printk(KERN_ERR"Error, but reason is not clear.\n");
+			cache_alert("Error, but reason is not clear.\n");
 			unlock_page(iet_page->page);
 			return err;
 		}
@@ -266,11 +266,13 @@ again:
 		
 		iet_page->valid_bitmap =0xff;
 
-		unlock_page(iet_page->page);					
+		unlock_page(iet_page->page);
 		
+		iscsi_cache->total_pages++;
+
 		add_to_lru_list(&iet_page->lru_list);
 		
-		printk(KERN_ALERT"READ MISS, no page\n");	
+		cache_info("READ MISS, no page\n");
 		}
 	return err;
 }
@@ -287,7 +289,7 @@ again:
 		iet_page= iscsi_find_get_page(iscsi_cache, page_index);
 
 		if(iet_page == NULL){	/* Write Miss */
-			iet_page=iscsi_get_free_page();
+			iet_page=iscsi_get_free_page(iscsi_cache);
 
 			iet_page->iscsi_cache=iscsi_cache;
 			iet_page->bdev=bdev;
@@ -302,7 +304,7 @@ again:
 					iet_page=NULL;
 					goto again;
 				}
-				printk(KERN_ERR"Error, but reason is not clear.\n");
+				cache_alert("Error, but reason is not clear.\n");
 				unlock_page(iet_page->page);
 				return err;
 			}
@@ -311,20 +313,27 @@ again:
 
 			iet_page->valid_bitmap |= bitmap;
 			iet_page->dirty_bitmap |=bitmap;
+			
 			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
 			
 			unlock_page(iet_page->page);
+
+			iscsi_cache->total_pages++;
+			iscsi_cache->dirty_pages++;
 			
-			add_to_lru_list(&iet_page->lru_list);				
-			printk(KERN_ALERT"WRITE MISS\n");
+			add_to_lru_list(&iet_page->lru_list);
+			cache_info("WRITE MISS\n");
 		}else{		/* Write Hit */
 
 			lock_page(iet_page->page);
 			
-			 mutex_lock(&iet_page->write);
+			mutex_lock(&iet_page->write);
 			copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
 
 			iet_page->valid_bitmap |= bitmap;
+			if(iet_page->dirty_bitmap == 0){
+				iscsi_cache->dirty_pages++;
+			}
 			iet_page->dirty_bitmap |= bitmap;
 			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
 			
@@ -333,7 +342,7 @@ again:
 			unlock_page(iet_page->page);
 			
 			update_lru_list(&iet_page->lru_list);
-			printk(KERN_ALERT"WRITE HIT\n");
+			cache_info("WRITE HIT\n");
 		}
 		return err;
 }

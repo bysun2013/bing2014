@@ -284,8 +284,9 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 
 	volume->l_state = IDEV_RUNNING;
 	atomic_set(&volume->l_count, 0);
-
-	volume->iscsi_cache = init_iscsi_cache();  /* iscsi cache */
+	
+	/* initialize iscsi cache */
+	volume->iscsi_cache = init_iscsi_cache();  
 	if(!volume->iscsi_cache){
 		ret = -ENOMEM;
 		goto free_args;
@@ -310,13 +311,14 @@ void iscsi_volume_destroy(struct iet_volume *volume)
 {
 	assert(volume->l_state == IDEV_DEL);
 	assert(!atomic_read(&volume->l_count));
-
+	
+	/* destroy iscsi cache */
+	del_iscsi_cache(volume->iscsi_cache);
+	
 	volume->iotype->detach(volume);
 	put_iotype(volume->iotype);
 	list_del(&volume->list);
 	volume_reservation_exit(volume);
-	
-	del_iscsi_cache(volume->iscsi_cache); /* iscsi cache */
 	
 	kfree(volume);
 }

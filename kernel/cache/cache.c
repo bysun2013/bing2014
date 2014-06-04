@@ -5,7 +5,6 @@
  */
 #include <linux/module.h>
 #include <linux/moduleparam.h>
-
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
@@ -18,7 +17,7 @@
 
 #include "cache.h"
 
-unsigned long cache_debug_enable_flags = 1;
+#define CACHE_VERSION "0.2"
 
 /* param of reserved memory at boot */
 extern unsigned int iet_mem_size;
@@ -26,28 +25,32 @@ extern unsigned int iet_mem_size;
 extern char *iet_mem_virt;
 
 static struct kmem_cache *iscsi_page_cache;
-static struct task_struct *iscsi_wb_thread;
 
 /*LRU link all of pages and devices*/
 static struct list_head lru;
 static spinlock_t		lru_lock;
 
 /* list all of volume, which use cache. */
-static struct list_head iscsi_cache_list;
-static struct mutex iscsi_cache_list_lock;
+struct list_head iscsi_cache_list;
+struct mutex iscsi_cache_list_lock;
 
 //struct cache_connection *cache_conn;
 
 /* bitmap is 7-0, Notice the sequence of bitmap*/
 char get_bitmap(sector_t lba_off, u32 num){
-	char bitmap=0x00;
-	int i;
-	
+	unsigned char a, b;
+	char bitmap = 0xff;
+
 	BUG_ON(lba_off+num > 8);
-	for(i=0;i<num;i++){
-		bitmap= bitmap | (1<<(lba_off+i));
-	}
+	
+	if((lba_off == 0 && num == 8))
+		return bitmap;
+	
+	a = 0xff << lba_off;
+	b = 0xff >>(8-(lba_off + num));
+	bitmap = (a & b);
 	return bitmap;
+
 }
 EXPORT_SYMBOL_GPL(get_bitmap);
 
@@ -65,11 +68,11 @@ static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache
 		} else {
 			page->iscsi_cache = NULL;
 			spin_unlock_irq(&iscsi_cache->tree_lock);
-			printk(KERN_ALERT"add_to_iscsi_rdix error 1!\n");
+			cache_alert("add_to_iscsi_rdix error 1!\n");
 		}
 		radix_tree_preload_end();
 	}else
-		printk(KERN_ALERT"add_to_iscsi_radix error 2!\n");
+		cache_alert("add_to_iscsi_radix error 2!\n");
 
 	return error;
 }
@@ -106,7 +109,7 @@ repeat:
 		 * Has the page moved?
 		 */
 		if (unlikely(iscsi_page != *pagep)) {
-			printk(KERN_ALERT"Has the page moved.\n");
+			cache_alert("Has the page moved.\n");
 			goto repeat;
 		}
 	}
@@ -139,7 +142,7 @@ void update_lru_list(struct list_head *list)
 }
 
 /* the free page is isolated, NOT list to LRU */
-struct iscsi_cache_page* iscsi_get_free_page(void)
+struct iscsi_cache_page* iscsi_get_free_page(struct iscsi_cache * iscsi_cache)
 {
 	struct list_head *list, *tmp;
 	struct iscsi_cache_page *iscsi_page=NULL;
@@ -157,17 +160,21 @@ again:
 		iscsi_page=NULL;
 	}
 	spin_unlock(&lru_lock);
-	/* Here it maybe not so efficient, leave it at that */
+	
+	if(over_bground_thresh(iscsi_cache))
+		wakeup_cache_flusher(iscsi_cache);
+
 	if(iscsi_page==NULL){
-		printk(KERN_ALERT"[ALERT] iscsi cache page is used up! Wait for write back...\n");
-		writeback_all();
+		cache_alert("[ALERT] iscsi cache page is used up! Wait for write back...\n");
+		wake_up_process(iscsi_wb_forker);
+		writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 		goto again;
 	}
 	if(iscsi_page->iscsi_cache){
 		del_page_from_radix(iscsi_page);
 		iscsi_page->iscsi_cache=NULL;
 	}
-
+	
 	return iscsi_page;
 }
 
@@ -233,7 +240,7 @@ int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* is
 	error=add_page_to_radix(iscsi_cache, iscsi_page, GFP_KERNEL);
 	
 	if(error <0){
-		printk(KERN_ERR"iscsi_cache_add: error in adding to cache.\n");
+		cache_alert("iscsi_cache_add: error in adding to cache.\n");
 	}
 	return error;
 }
@@ -261,22 +268,6 @@ int iscsi_del_page(struct iscsi_cache_page *iscsi_page)
 	return 0;
 }
 
-int writeback_all(void){
-	struct iscsi_cache *iscsi_cache;
-	mutex_lock(&iscsi_cache_list_lock);
-	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
-		mutex_lock(&iscsi_cache->mutex);
-		mutex_unlock(&iscsi_cache_list_lock);
-		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_NONE);
-		mutex_unlock(&iscsi_cache->mutex);
-
-		mutex_lock(&iscsi_cache_list_lock);
-	}
-	mutex_unlock(&iscsi_cache_list_lock);
-	
-	return 0;
-}
-
 static int iscsi_page_init(void)
 {
 	iscsi_page_cache = KMEM_CACHE(iscsi_cache_page, 0);
@@ -286,11 +277,16 @@ static int iscsi_page_init(void)
 void* init_iscsi_cache(void)
 {
 	struct iscsi_cache *iscsi_cache;
-	
-	iscsi_cache=kmalloc(sizeof(*iscsi_cache),GFP_KERNEL);
+	static int id = 0;
+	iscsi_cache=kzalloc(sizeof(*iscsi_cache),GFP_KERNEL);
 	if(!iscsi_cache)
 		return NULL;
 
+	snprintf(iscsi_cache->name, MAX_NAME_LEN, "%d", ++id);
+
+	iscsi_cache->total_pages = iscsi_cache->dirty_pages = 0;
+	iscsi_cache->last_active = iscsi_cache->last_old_flush =0;
+	
 	spin_lock_init(&iscsi_cache->tree_lock);
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
 	mutex_init(&iscsi_cache->mutex);
@@ -298,7 +294,7 @@ void* init_iscsi_cache(void)
 	mutex_lock(&iscsi_cache_list_lock);
 	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
 	mutex_unlock(&iscsi_cache_list_lock);
-
+	
 	return (void *)iscsi_cache;
 }
 EXPORT_SYMBOL_GPL(init_iscsi_cache);
@@ -315,8 +311,10 @@ void del_iscsi_cache(void *iscsi_cachep)
 	mutex_unlock(&iscsi_cache->mutex);
 	mutex_unlock(&iscsi_cache_list_lock);
 
-	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL);
-	
+	if(iscsi_cache->task)
+		kthread_stop(iscsi_cache->task);
+
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
 	kfree(iscsi_cache);
 }
 
@@ -326,18 +324,21 @@ static int iscsi_global_cache_init(void)
 {
 	int err = 0;
 	unsigned int i;
-	int iscsi_page_num;
+	unsigned long iscsi_pages;
 	phys_addr_t reserve_phys_addr;
 	char *tmp_addr;
 
-	reserve_phys_addr=virt_to_phys(iet_mem_virt);
-	iscsi_page_num = (iet_mem_size)/PAGE_SIZE;
-	tmp_addr = iet_mem_virt;
+	BUG_ON(PAGE_SIZE > 4096);
 	
-	printk(KERN_ALERT"reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
+	reserve_phys_addr=virt_to_phys(iet_mem_virt);
+	iscsi_pages = (iet_mem_size)/PAGE_SIZE;
+	
+	tmp_addr = iet_mem_virt;
+
+	cache_alert("iSCSI Cache Module  - version %s\n", CACHE_VERSION);
+	cache_alert("reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
 
-	BUG_ON(PAGE_SIZE > 4096);
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
 	
 	if((err=iscsi_page_init())< 0)
@@ -350,7 +351,7 @@ static int iscsi_global_cache_init(void)
 	INIT_LIST_HEAD(&iscsi_cache_list);
 	mutex_init(&iscsi_cache_list_lock);
 
-	for(i=0;i<iscsi_page_num;i++){
+	for(i=0;i<iscsi_pages;i++){
 		struct iscsi_cache_page *iscsi_page;
 		struct page *page;
 		page = virt_to_page(tmp_addr);
@@ -371,7 +372,8 @@ static int iscsi_global_cache_init(void)
 		tmp_addr = tmp_addr+ PAGE_SIZE;
 	}
 	
-	iscsi_wb_thread=kthread_run(writeback_thread, NULL, "cache_wb_thread");
+	if((err=wb_thread_init()) < 0)
+		return err;
 
 	//cache_conn = cache_conn_create("cache_conn");
 	return err;
@@ -383,8 +385,7 @@ static void iscsi_global_cache_exit(void)
 	struct list_head *list, *tmp;
 	struct iscsi_cache_page *iscsi_page;
 
-	kthread_stop(iscsi_wb_thread);
-	writeback_all();
+	wb_thread_exit();
 
 	//cache_conn_destroy();
 	
@@ -400,7 +401,7 @@ static void iscsi_global_cache_exit(void)
 module_init(iscsi_global_cache_init);
 module_exit(iscsi_global_cache_exit);
 
-MODULE_VERSION("0.1");
+MODULE_VERSION(CACHE_VERSION);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("iSCSI Cache");
 MODULE_AUTHOR("Bing Sun <b.y.sun.cn@gmail.com>");

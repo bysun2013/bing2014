@@ -15,6 +15,12 @@
 #include <linux/kthread.h>
 #include <linux/radix-tree.h>
 #include <linux/pagemap.h>
+#include <linux/timer.h>
+
+#include "cache_dbg.h"
+
+extern struct list_head iscsi_cache_list;
+extern struct mutex iscsi_cache_list_lock;
 
 enum{
 	WRITE_BACK,
@@ -51,9 +57,39 @@ struct iscsi_cache_page{
 	struct list_head lru_list;
 };
 
+/*
+ * Bits in iscsi_cache.state
+ */
+enum cache_state {
+	CACHE_pending,		/* On its way to being activated */
+	CACHE_wb_alloc,		/* Default embedded wb allocated */
+	CACHE_async_congested,	/* The async (write) queue is getting full */
+	CACHE_sync_congested,	/* The sync queue is getting full */
+	CACHE_writeback_running,	/* Writeback is in progress */
+	CACHE_unused,		/* Available bits start here */
+};
+
+#define MAX_NAME_LEN (sizeof(int)+1)
+
 struct iscsi_cache{
+	char name[MAX_NAME_LEN];
+	
 	struct radix_tree_root page_tree;	/* radix tree of all cache pages */
 	spinlock_t	 tree_lock;	 /* and lock protecting it */
+
+	unsigned long state;	/* Always use atomic bitops on this */
+	
+	unsigned long last_old_flush;	/* last old data flush */
+	unsigned long last_active;	/* last time bdi thread was active */
+
+	unsigned long dirty_pages;
+	unsigned long total_pages;
+	
+	struct task_struct *task;	/* writeback thread */
+	struct timer_list wakeup_timer; /* used for delayed thread wakeup */
+
+	spinlock_t wb_lock;
+
 	struct list_head list;		/* list all of radix tree in cache */
 	struct mutex mutex;
 };
@@ -73,7 +109,7 @@ void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page,
 
 int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* iscsi_page);
 int iscsi_del_page(struct iscsi_cache_page *iscsi_page);
-struct iscsi_cache_page* iscsi_get_free_page(void);
+struct iscsi_cache_page* iscsi_get_free_page(struct iscsi_cache *iscsi_cache);
 struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index);
 
 void * init_iscsi_cache(void);
@@ -88,11 +124,14 @@ int iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_
 
 
 /* writeback.c */
+extern struct task_struct *iscsi_wb_forker;
 void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
 void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
-int writeback_thread(void *args);
-int writeback_all(void);
-int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode);
+int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write);
+bool over_bground_thresh(struct iscsi_cache *iscsi_cache);
+void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache);
+int wb_thread_init(void);
+void wb_thread_exit(void);
 
 
 #endif
