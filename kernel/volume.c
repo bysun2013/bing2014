@@ -286,7 +286,7 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 	atomic_set(&volume->l_count, 0);
 	
 	/* initialize iscsi cache */
-	volume->iscsi_cache = init_iscsi_cache();  
+	volume->iscsi_cache = init_iscsi_cache(volume->lun); 
 	if(!volume->iscsi_cache){
 		ret = -ENOMEM;
 		goto free_args;

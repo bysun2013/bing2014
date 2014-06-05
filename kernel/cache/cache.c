@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2014 Bing Sun <b.y.sun.cn@gmail.com>
+ * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
  *
  * Released under the terms of the GNU GPL v2.0.
  */
@@ -168,8 +168,8 @@ again:
 		goto again;
 	}
 	if(iscsi_page->iscsi_cache){
+		iscsi_page->iscsi_cache->total_pages--;
 		del_page_from_radix(iscsi_page);
-		iscsi_page->iscsi_cache=NULL;
 	}
 	
 	return iscsi_page;
@@ -271,15 +271,14 @@ static int iscsi_page_init(void)
 	return  iscsi_page_cache ? 0 : -ENOMEM;
 }
 
-void* init_iscsi_cache(void)
+void* init_iscsi_cache(u32 id)
 {
 	struct iscsi_cache *iscsi_cache;
-	static int id = 0;
 	iscsi_cache=kzalloc(sizeof(*iscsi_cache),GFP_KERNEL);
 	if(!iscsi_cache)
 		return NULL;
 
-	snprintf(iscsi_cache->name, MAX_NAME_LEN, "%d", ++id);
+	snprintf(iscsi_cache->name, MAX_NAME_LEN, "%d", id);
 
 	iscsi_cache->total_pages = iscsi_cache->dirty_pages = 0;
 	iscsi_cache->last_active = iscsi_cache->last_old_flush =0;
@@ -287,6 +286,8 @@ void* init_iscsi_cache(void)
 	spin_lock_init(&iscsi_cache->tree_lock);
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
 	mutex_init(&iscsi_cache->mutex);
+
+	setup_timer(&iscsi_cache->wakeup_timer, cache_wakeup_timer_fn, (unsigned long)iscsi_cache);
 	
 	mutex_lock(&iscsi_cache_list_lock);
 	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
@@ -317,6 +318,30 @@ void del_iscsi_cache(void *iscsi_cachep)
 
 EXPORT_SYMBOL_GPL(del_iscsi_cache);
 
+static void iscsi_global_cache_exit(void)
+{
+	
+	struct list_head *list, *tmp;
+	struct iscsi_cache_page *iscsi_page;
+
+	cache_procfs_exit();
+
+	wb_thread_exit();
+	
+	//cache_conn_destroy();
+	
+	list_for_each_safe(list, tmp, &lru){
+		iscsi_page = list_entry(list, struct iscsi_cache_page, lru_list);
+		list_del_init(list);
+		kmem_cache_free(iscsi_page_cache, iscsi_page);
+	}
+	
+	if(iscsi_page_cache)
+		kmem_cache_destroy(iscsi_page_cache);
+	
+	cache_info("Unload iSCSI Cache Module. All right \n");
+}
+
 static int iscsi_global_cache_init(void)
 {
 	int err = 0;
@@ -339,7 +364,7 @@ static int iscsi_global_cache_init(void)
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
 	
 	if((err=iscsi_page_init())< 0)
-		return err;
+		goto error;
 
 	INIT_LIST_HEAD(&lru);
 	spin_lock_init(&lru_lock);
@@ -370,30 +395,18 @@ static int iscsi_global_cache_init(void)
 	}
 	
 	if((err=wb_thread_init()) < 0)
-		return err;
+		goto error;
 
+	if((err=cache_procfs_init()) < 0)
+		goto error;
+	
 	//cache_conn = cache_conn_create("cache_conn");
+
 	return err;
-}
-
-static void iscsi_global_cache_exit(void)
-{
-	
-	struct list_head *list, *tmp;
-	struct iscsi_cache_page *iscsi_page;
-
-	wb_thread_exit();
-
-	//cache_conn_destroy();
-	
-	list_for_each_safe(list, tmp, &lru){
-		iscsi_page = list_entry(list, struct iscsi_cache_page, lru_list);
-		list_del_init(list);
-		kmem_cache_free(iscsi_page_cache, iscsi_page);
-	}
-	
-	kmem_cache_destroy(iscsi_page_cache);
-	cache_info("Unload iSCSI Cache Module. All right \n");
+error:
+	cache_alert("[Alert] Cache Initialize failed.\n");
+	iscsi_global_cache_exit();
+	return err;
 }
 
 module_init(iscsi_global_cache_init);

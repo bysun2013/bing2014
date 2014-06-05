@@ -8,9 +8,9 @@
 #define CACHE_DBG_H
 
 /**
-  * set flag to zero, if you don't want to output much log.
+  * comment it, if you don't want to output much log.
 */
-#define CACHE_DEBUG_ENABLE_FLAGS 0
+#define CACHE_DEBUG_ENABLE_FLAGS
 
 #define PFX "[iSCSI_Cache] "
 
@@ -28,23 +28,26 @@
 		       ##args);					\
 	} while (0)
 
+#ifdef CACHE_DEBUG_ENABLE_FLAGS
 #define dprintk_detail(level, fmt, args...)					\
 	do { 							   \
-		if (CACHE_DEBUG_ENABLE_FLAGS) {		   \
 			printk(level PFX "%s(%d) " fmt,	   \
 				__FUNCTION__, 			   \
 				__LINE__, 			   \
 				##args);					\
-		}						   \
 	} while (0)
 			   
 #define dprintk(level, fmt, args...)					\
 	do { 							   \
-		if (CACHE_DEBUG_ENABLE_FLAGS) {		   \
 		   	printk(level PFX fmt,	   \
 				##args);					\
-	  	}						   \
 	} while (0)
+
+#else
+#define dprintk_detail(level, fmt, args...)
+#define dprintk(level, fmt, args...)
+#endif
+
 
 #define cache_dbg(fmt, args...) \
 	dprintk(KERN_DEBUG, fmt, ##args)

@@ -69,7 +69,7 @@ enum cache_state {
 	CACHE_unused,		/* Available bits start here */
 };
 
-#define MAX_NAME_LEN (sizeof(int)+1)
+#define MAX_NAME_LEN 5
 
 struct iscsi_cache{
 	char name[MAX_NAME_LEN];
@@ -80,7 +80,7 @@ struct iscsi_cache{
 	unsigned long state;	/* Always use atomic bitops on this */
 	
 	unsigned long last_old_flush;	/* last old data flush */
-	unsigned long last_active;	/* last time bdi thread was active */
+	unsigned long last_active;	/* last time wb thread was active */
 
 	unsigned long dirty_pages;
 	unsigned long total_pages;
@@ -112,15 +112,9 @@ int iscsi_del_page(struct iscsi_cache_page *iscsi_page);
 struct iscsi_cache_page* iscsi_get_free_page(struct iscsi_cache *iscsi_cache);
 struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index);
 
-void * init_iscsi_cache(void);
-void del_iscsi_cache(void *iscsi_cachep);
 
 /* cache_rw.c */
 int blockio_start_write_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev);
-int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
-int iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
 
 
 /* writeback.c */
@@ -129,9 +123,16 @@ void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
 void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
 int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write);
 bool over_bground_thresh(struct iscsi_cache *iscsi_cache);
+void cache_wakeup_timer_fn(unsigned long data);
 void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache);
 int wb_thread_init(void);
 void wb_thread_exit(void);
+
+/* cache_proc.c*/
+
+int cache_procfs_init(void);
+void cache_procfs_exit(void);
+
 
 
 #endif

@@ -18,7 +18,7 @@ unsigned int cache_dirty_writeback_interval = 5 * 100; /* centiseconds */
 /*
  * The longest time for which data is allowed to remain dirty
  */
-unsigned int cache_dirty_expire_interval = 15 * 100; /* centiseconds */
+unsigned int cache_dirty_expire_interval = 30 * 100; /* centiseconds */
 
 
 /*
@@ -43,7 +43,7 @@ enum cache_wb_reason {
 struct cache_writeback_work {
 	long nr_pages;
 	struct iscsi_cache *cache;
-	unsigned long *older_than_this;
+	unsigned long *older_than_this;   /* may be used in the future */
 	enum iscsi_wb_sync_modes sync_mode;
 	unsigned int tagged_writepages:1;
 	unsigned int for_kupdate:1;
@@ -224,6 +224,7 @@ continue_unlock:
 				iscsi_clear_page_tag(iscsi_page, ISCSICACHE_TAG_TOWRITE);
 
 			wrote++;
+			iscsi_cache->dirty_pages--;
 			if(--pages_to_write < 1){
 				done=1;
 				unlock_page(iscsi_page->page);
@@ -274,7 +275,20 @@ void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache)
 	}
 }
 
-void cache_wakeup_thread_delayed(struct iscsi_cache *iscsi_cache)
+void cache_wakeup_timer_fn(unsigned long data)
+{
+	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)data;
+
+	//spin_lock_bh(&bdi->wb_lock);
+	if (iscsi_cache->task) {
+		wake_up_process(iscsi_cache->task);
+	} else{
+		wake_up_process(iscsi_wb_forker);
+	}
+	//spin_unlock_bh(&bdi->wb_lock);
+}
+
+static void cache_wakeup_thread_delayed(struct iscsi_cache *iscsi_cache)
 {
 	unsigned long timeout;
 
@@ -326,12 +340,6 @@ static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work 
 		if (work->for_background && !over_bground_thresh(wb))
 			break;
 
-		/*
-		 * Kupdate and background works are special and we want to
-		 * include all inodes that need writing. Livelock avoidance is
-		 * handled by these works yielding to any other work so we are
-		 * safe.
-		 */
 		if (work->for_kupdate) {
 			oldest_jif = jiffies -msecs_to_jiffies(cache_dirty_expire_interval * 10);
 		} else if (work->for_background)
@@ -348,6 +356,7 @@ static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work 
 	return nr_pages - work->nr_pages;
 }
 
+/* when dirty ratio is over thresh, it's executed */
 static long cache_wb_background_flush(struct iscsi_cache *wb)
 {
 	if (over_bground_thresh(wb)) {
@@ -363,6 +372,7 @@ static long cache_wb_background_flush(struct iscsi_cache *wb)
 	return 0;
 }
 
+/* wakes up periodically and does kupdated style flushing. */
 static long cache_wb_old_data_flush(struct iscsi_cache *wb)
 {
 	unsigned long expired;
@@ -386,6 +396,7 @@ static long cache_wb_old_data_flush(struct iscsi_cache *wb)
 		return 0;
 
 	wb->last_old_flush = jiffies;
+	cache_wakeup_thread_delayed(wb);
 
 	return cache_writeback(wb, &work);
 }
@@ -548,6 +559,7 @@ int wb_thread_init(void){
 }
 
 void wb_thread_exit(void){
-	kthread_stop(iscsi_wb_forker);
+	if(iscsi_wb_forker)
+		kthread_stop(iscsi_wb_forker);
 	writeback_all();
 }
