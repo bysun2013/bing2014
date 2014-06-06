@@ -69,29 +69,26 @@ enum cache_state {
 	CACHE_unused,		/* Available bits start here */
 };
 
-#define MAX_NAME_LEN 5
 
 struct iscsi_cache{
-	char name[MAX_NAME_LEN];
+	u32 id;
+	struct list_head list;		/* list all of radix tree in cache */
 	
 	struct radix_tree_root page_tree;	/* radix tree of all cache pages */
 	spinlock_t	 tree_lock;	 /* and lock protecting it */
 
+	/* Writeback */
 	unsigned long state;	/* Always use atomic bitops on this */
 	
 	unsigned long last_old_flush;	/* last old data flush */
 	unsigned long last_active;	/* last time wb thread was active */
 
-	unsigned long dirty_pages;
+	unsigned long dirty_pages;	/* should be atomic */
 	unsigned long total_pages;
 	
 	struct task_struct *task;	/* writeback thread */
 	struct timer_list wakeup_timer; /* used for delayed thread wakeup */
 
-	spinlock_t wb_lock;
-
-	struct list_head list;		/* list all of radix tree in cache */
-	struct mutex mutex;
 };
 
 /* iscsi_cache.c */

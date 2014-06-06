@@ -26,12 +26,8 @@ unsigned int cache_dirty_expire_interval = 30 * 100; /* centiseconds */
  */
 enum cache_wb_reason {
 	WB_REASON_BACKGROUND,
-	WB_REASON_TRY_TO_FREE_PAGES,
 	WB_REASON_SYNC,
 	WB_REASON_PERIODIC,
-	WB_REASON_LAPTOP_TIMER,
-	WB_REASON_FREE_MORE_MEM,
-	WB_REASON_FS_FREE_SPACE,
 	WB_REASON_FORKER_THREAD,
 
 	WB_REASON_MAX,
@@ -239,13 +235,11 @@ continue_unlock:
 
 int writeback_all(void){
 	struct iscsi_cache *iscsi_cache;
+	
 	mutex_lock(&iscsi_cache_list_lock);
 	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
-		mutex_lock(&iscsi_cache->mutex);
 		mutex_unlock(&iscsi_cache_list_lock);
 		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_ALL, ULONG_MAX);
-		mutex_unlock(&iscsi_cache->mutex);
-
 		mutex_lock(&iscsi_cache_list_lock);
 	}
 	mutex_unlock(&iscsi_cache_list_lock);
@@ -279,13 +273,11 @@ void cache_wakeup_timer_fn(unsigned long data)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)data;
 
-	//spin_lock_bh(&bdi->wb_lock);
 	if (iscsi_cache->task) {
 		wake_up_process(iscsi_cache->task);
 	} else{
 		wake_up_process(iscsi_wb_forker);
 	}
-	//spin_unlock_bh(&bdi->wb_lock);
 }
 
 static void cache_wakeup_thread_delayed(struct iscsi_cache *iscsi_cache)
@@ -332,7 +324,6 @@ static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work 
 	oldest_jif = jiffies;
 	work->older_than_this = &oldest_jif;
 
-	//spin_lock(&wb->list_lock);
 	for (;;) {
 		if (work->nr_pages <= 0)
 			break;
@@ -346,12 +337,12 @@ static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work 
 			oldest_jif = jiffies;
 
 		progress = writeback_single(wb, work->sync_mode, nr_pages);
+		
 		work->nr_pages-=progress;
 
 		if(!progress)
 			break;
 	}
-	//spin_unlock(&wb->list_lock);
 
 	return nr_pages - work->nr_pages;
 }
@@ -426,13 +417,12 @@ int cache_writeback_thread(void *data)
 {
 	struct iscsi_cache *wb = (struct iscsi_cache *)data;
 	long pages_written;
-
-	//set_freezable();
 	
 	set_user_nice(current, 0);
 	
 	wb->last_active = jiffies; 
-
+	
+	cache_dbg("WB Thread starts, id= %u", wb->id);
 	while (!kthread_should_stop()) {
 		/*
 		 * Remove own delayed wake-up timer, since we are already awake
@@ -453,7 +443,8 @@ int cache_writeback_thread(void *data)
 		
 		schedule_timeout(msecs_to_jiffies(cache_dirty_writeback_interval * 10));
 	}
-
+	cache_dbg("WB Thread ends, id= %u", wb->id);
+	
 	/* Flush any work that raced with us exiting */
 	writeback_single(wb, ISCSI_WB_SYNC_NONE,  ULONG_MAX);
 	
@@ -461,7 +452,7 @@ int cache_writeback_thread(void *data)
 }
 
 static int cache_forker_thread(void * args)
-{		
+{
 	struct task_struct *task = NULL;
 	struct iscsi_cache *iscsi_cache;
 	bool have_dirty_io = false;
@@ -478,7 +469,7 @@ static int cache_forker_thread(void * args)
 			KILL_THREAD, /* Kill inactive thread */
 		} action = NO_ACTION;
 
-		//spin_lock_bh(&iscsi_cache_list_lock);
+		mutex_lock(&iscsi_cache_list_lock);
 
 		set_current_state(TASK_INTERRUPTIBLE);
 
@@ -501,27 +492,18 @@ static int cache_forker_thread(void * args)
 				action = KILL_THREAD;
 				break;
 			}
-			//spin_unlock(&bdi->wb_lock);
 		}
-		//spin_unlock_bh(&iscsi_cache_list_lock);
+		mutex_unlock(&iscsi_cache_list_lock);
 
 		switch (action) {
 		case FORK_THREAD:
 			__set_current_state(TASK_RUNNING);
 			task = kthread_create(cache_writeback_thread, iscsi_cache,
-					      "icache-flush-%s", (iscsi_cache->name));
+					      "icache-flush-%d", iscsi_cache->id);
 			if (IS_ERR(task)) {
 				writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 			} else {
-				/*
-				 * The spinlock makes sure we do not lose
-				 * wake-ups when racing with 'bdi_queue_work()'.
-				 * And as soon as the bdi thread is visible, we
-				 * can start it.
-				 */
-				//spin_lock_bh(&bdi->wb_lock);
 				iscsi_cache->task = task;
-				//spin_unlock_bh(&bdi->wb_lock);
 				wake_up_process(task);
 			}
 			clear_bit(CACHE_pending, &iscsi_cache->state);
@@ -542,13 +524,16 @@ static int cache_forker_thread(void * args)
 			break;
 		}
 	}
-	
+
+	mutex_lock(&iscsi_cache_list_lock);
 	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list) {
 		task = iscsi_cache->task;
 		iscsi_cache->task = NULL;
 		if(task)
 			kthread_stop(task);
 	}
+	mutex_unlock(&iscsi_cache_list_lock);
+	
 	return 0;
 }
 
@@ -561,5 +546,6 @@ int wb_thread_init(void){
 void wb_thread_exit(void){
 	if(iscsi_wb_forker)
 		kthread_stop(iscsi_wb_forker);
+	
 	writeback_all();
 }

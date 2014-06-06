@@ -164,7 +164,9 @@ again:
 	if(iscsi_page==NULL){
 		cache_err("Cache is used up! Wait for write back...\n");
 		wake_up_process(iscsi_wb_forker);
+		
 		writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+		
 		goto again;
 	}
 	if(iscsi_page->iscsi_cache){
@@ -235,10 +237,7 @@ int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* is
 	int error;
 
 	error=add_page_to_radix(iscsi_cache, iscsi_page, GFP_KERNEL);
-	
-	if(error <0){
-		cache_err("iscsi_cache_add: error in adding to cache.\n");
-	}
+
 	return error;
 }
 
@@ -278,14 +277,10 @@ void* init_iscsi_cache(u32 id)
 	if(!iscsi_cache)
 		return NULL;
 
-	snprintf(iscsi_cache->name, MAX_NAME_LEN, "%d", id);
-
-	iscsi_cache->total_pages = iscsi_cache->dirty_pages = 0;
-	iscsi_cache->last_active = iscsi_cache->last_old_flush =0;
+	iscsi_cache->id = id;
 	
 	spin_lock_init(&iscsi_cache->tree_lock);
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
-	mutex_init(&iscsi_cache->mutex);
 
 	setup_timer(&iscsi_cache->wakeup_timer, cache_wakeup_timer_fn, (unsigned long)iscsi_cache);
 	
@@ -304,15 +299,14 @@ void del_iscsi_cache(void *iscsi_cachep)
 		return;
 	
 	mutex_lock(&iscsi_cache_list_lock);
-	mutex_lock(&iscsi_cache->mutex);
 	list_del_init(&iscsi_cache->list);
-	mutex_unlock(&iscsi_cache->mutex);
 	mutex_unlock(&iscsi_cache_list_lock);
 
 	if(iscsi_cache->task)
 		kthread_stop(iscsi_cache->task);
-
+	
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
+	
 	kfree(iscsi_cache);
 }
 
