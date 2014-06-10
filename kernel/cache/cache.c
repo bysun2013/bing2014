@@ -24,6 +24,8 @@ extern unsigned int iet_mem_size;
 //extern unsigned long iscsi_mem_goal; /* preferred starting address of the region */
 extern char *iet_mem_virt;
 
+unsigned long iscsi_cache_total_pages;
+
 static struct kmem_cache *iscsi_page_cache;
 
 /*LRU link all of pages and devices*/
@@ -270,14 +272,21 @@ static int iscsi_page_init(void)
 	return  iscsi_page_cache ? 0 : -ENOMEM;
 }
 
-void* init_iscsi_cache(u32 id)
+void* init_iscsi_cache(const char *path)
 {
 	struct iscsi_cache *iscsi_cache;
 	iscsi_cache=kzalloc(sizeof(*iscsi_cache),GFP_KERNEL);
 	if(!iscsi_cache)
 		return NULL;
 
-	iscsi_cache->id = id;
+	memcpy(&iscsi_cache->path, path, PATH_LEN);
+
+	iscsi_cache->bdev = blkdev_get_by_path(path, 
+		(FMODE_READ |FMODE_WRITE), THIS_MODULE);
+	if(IS_ERR(iscsi_cache->bdev)){
+		iscsi_cache->bdev = NULL;
+		cache_err("Error occurs when get block device.\n");
+	}
 	
 	spin_lock_init(&iscsi_cache->tree_lock);
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
@@ -306,7 +315,10 @@ void del_iscsi_cache(void *iscsi_cachep)
 		kthread_stop(iscsi_cache->task);
 	
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
-	
+
+	blkdev_put(iscsi_cache->bdev, (FMODE_READ |FMODE_WRITE));
+	cache_dbg("Good, release block device.\n");
+
 	kfree(iscsi_cache);
 }
 
@@ -340,14 +352,13 @@ static int iscsi_global_cache_init(void)
 {
 	int err = 0;
 	unsigned int i;
-	unsigned long iscsi_pages;
 	phys_addr_t reserve_phys_addr;
 	char *tmp_addr;
 
 	BUG_ON(PAGE_SIZE > 4096);
 	
 	reserve_phys_addr=virt_to_phys(iet_mem_virt);
-	iscsi_pages = (iet_mem_size)/PAGE_SIZE;
+	iscsi_cache_total_pages = (iet_mem_size)/PAGE_SIZE;
 	
 	tmp_addr = iet_mem_virt;
 
@@ -363,11 +374,10 @@ static int iscsi_global_cache_init(void)
 	INIT_LIST_HEAD(&lru);
 	spin_lock_init(&lru_lock);
 	
-	
 	INIT_LIST_HEAD(&iscsi_cache_list);
 	mutex_init(&iscsi_cache_list_lock);
 
-	for(i=0;i<iscsi_pages;i++){
+	for(i=0;i<iscsi_cache_total_pages;i++){
 		struct iscsi_cache_page *iscsi_page;
 		struct page *page;
 		page = virt_to_page(tmp_addr);

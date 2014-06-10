@@ -346,6 +346,7 @@ again:
 
 			iet_page->valid_bitmap |= bitmap;
 			iet_page->dirty_bitmap |=bitmap;
+			iet_page->dirtied_when = jiffies;
 			
 			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
 			
@@ -366,6 +367,7 @@ again:
 			iet_page->valid_bitmap |= bitmap;
 			if(iet_page->dirty_bitmap == 0){
 				iscsi_cache->dirty_pages++;
+				iet_page->dirtied_when = jiffies;
 			}
 			iet_page->dirty_bitmap |= bitmap;
 			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);

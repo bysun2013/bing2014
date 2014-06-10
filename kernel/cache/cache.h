@@ -22,6 +22,8 @@
 extern struct list_head iscsi_cache_list;
 extern struct mutex iscsi_cache_list_lock;
 
+extern unsigned long iscsi_cache_total_pages;
+
 enum{
 	WRITE_BACK,
 	HOST,
@@ -47,6 +49,7 @@ struct iscsi_cache_page{
 	/* block is 512 Byte, and page is 4KB */
 	unsigned char valid_bitmap;
 	unsigned char dirty_bitmap;
+	unsigned long dirtied_when;	/* jiffies of first dirtying */
 	
 	struct page *page;
 	spinlock_t page_lock;
@@ -69,9 +72,12 @@ enum cache_state {
 	CACHE_unused,		/* Available bits start here */
 };
 
-
+#define PATH_LEN 16
 struct iscsi_cache{
 	u32 id;
+	char path[PATH_LEN];
+	struct block_device *bdev;
+	
 	struct list_head list;		/* list all of radix tree in cache */
 	
 	struct radix_tree_root page_tree;	/* radix tree of all cache pages */

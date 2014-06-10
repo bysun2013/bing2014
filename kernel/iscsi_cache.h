@@ -14,7 +14,7 @@ extern int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, 
 extern int iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
 		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
 
-extern void * init_iscsi_cache(u32 id);
+extern void * init_iscsi_cache(const char* path);
 extern void del_iscsi_cache(void *iscsi_cachep);
 
 #endif

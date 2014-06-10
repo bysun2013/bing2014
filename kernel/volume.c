@@ -229,6 +229,7 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 {
 	int ret;
 	struct iet_volume *volume;
+	struct blockio_data *bio_data;
 	char *args;
 
 	volume = volume_lookup(target, info->lun);
@@ -286,7 +287,8 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 	atomic_set(&volume->l_count, 0);
 	
 	/* initialize iscsi cache */
-	volume->iscsi_cache = init_iscsi_cache(volume->lun); 
+	bio_data = volume->private;
+	volume->iscsi_cache = init_iscsi_cache(bio_data->path); 
 	if(!volume->iscsi_cache){
 		ret = -ENOMEM;
 		goto free_args;

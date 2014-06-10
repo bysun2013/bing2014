@@ -62,8 +62,8 @@ static void cache_volume_info_show(struct seq_file *seq)
 	struct iscsi_cache * volume;
 	
 	list_for_each_entry(volume, &iscsi_cache_list, list) {
-		seq_printf(seq, "\tcache id:%u total:%lu dirty:%lu\n",
-			volume->id, volume->total_pages, volume->dirty_pages);
+		seq_printf(seq, "\tcache Path:%s total:%lu dirty:%lu\n",
+			&volume->path[0], volume->total_pages, volume->dirty_pages);
 	}
 }
 

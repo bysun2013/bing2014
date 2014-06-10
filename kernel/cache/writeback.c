@@ -250,10 +250,10 @@ int writeback_all(void){
 bool over_bground_thresh(struct iscsi_cache *iscsi_cache){
 	unsigned long ratio;
 	unsigned long dirty_pages = iscsi_cache->dirty_pages;
-	if(dirty_pages < 32)
+	if(dirty_pages < 256)
 		return false;
 	
-	ratio = dirty_pages * 100/(iscsi_cache->total_pages);
+	ratio = dirty_pages * 100/iscsi_cache_total_pages;
 	if(ratio > cache_dirty_background_ratio)
 		return true;
 	return false;
@@ -300,21 +300,6 @@ static unsigned long cache_longest_inactive(void)
 	return max(5UL * 60 * HZ, interval);
 }
 
-/*
- * Explicit flushing or periodic writeback of "old" data.
- *
- * Define "old": the first time one of an inode's pages is dirtied, we mark the
- * dirtying-time in the inode's address_space.  So this periodic writeback code
- * just walks the superblock inode list, writing back any inodes which are
- * older than a specific point in time.
- *
- * Try to run once per dirty_writeback_interval.  But if a writeback event
- * takes longer than a dirty_writeback_interval interval, then leave a
- * one-second gap.
- *
- * older_than_this takes precedence over nr_to_write.  So we'll only write back
- * all dirty pages if they are all attached to "old" mappings.
- */
 static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work *work)
 {
 	long nr_pages = work->nr_pages;
