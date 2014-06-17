@@ -16,8 +16,10 @@
 #include <linux/list.h>
 
 #include "cache.h"
+#include "cache_wb.h"
 
-#define CACHE_VERSION "0.2"
+extern int cache_procfs_init(void);
+extern void cache_procfs_exit(void);
 
 /* param of reserved memory at boot */
 extern unsigned int iet_mem_size;
@@ -37,24 +39,6 @@ struct list_head iscsi_cache_list;
 struct mutex iscsi_cache_list_lock;
 
 //struct cache_connection *cache_conn;
-
-/* bitmap is 7-0, Notice the sequence of bitmap*/
-unsigned char get_bitmap(sector_t lba_off, u32 num){
-	unsigned char a, b;
-	unsigned char bitmap = 0xff;
-
-	BUG_ON(lba_off+num > 8);
-	
-	if((lba_off == 0 && num == 8))
-		return bitmap;
-	
-	a = 0xff << lba_off;
-	b = 0xff >>(8-(lba_off + num));
-	bitmap = (a & b);
-	return bitmap;
-
-}
-EXPORT_SYMBOL_GPL(get_bitmap);
 
 static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache_page *page, 
 		gfp_t gfp_mask)
@@ -119,20 +103,20 @@ out:
 
 }
 
-void add_to_lru_list(struct list_head *list)
+static void add_to_lru_list(struct list_head *list)
 {
 	spin_lock(&lru_lock);
 	list_add_tail(list, &lru);
 	spin_unlock(&lru_lock);
 }
-void throw_to_lru_list(struct list_head *list)
+static void throw_to_lru_list(struct list_head *list)
 {
 	spin_lock(&lru_lock);
 	list_add(list, &lru);
 	spin_unlock(&lru_lock);
 }
 
-void update_lru_list(struct list_head *list)
+static void update_lru_list(struct list_head *list)
 {
 	spin_lock(&lru_lock);
 	list_del_init(list);
@@ -141,7 +125,7 @@ void update_lru_list(struct list_head *list)
 }
 
 /* the free page is isolated, NOT list to LRU */
-struct iscsi_cache_page* iscsi_get_free_page(struct iscsi_cache * iscsi_cache)
+static struct iscsi_cache_page* cache_get_free_page(struct iscsi_cache * iscsi_cache)
 {
 	struct list_head *list, *tmp;
 	struct iscsi_cache_page *iscsi_page=NULL;
@@ -152,16 +136,21 @@ again:
 		iscsi_page=list_entry(list, struct iscsi_cache_page, lru_list);
 		BUG_ON(iscsi_page == NULL);
 		if((iscsi_page->dirty_bitmap & 0xff) == 0){
+			//if(!trylock_page(iscsi_page->page))
+			//	continue;
 			list_del_init(list);
-			iscsi_page->valid_bitmap=0x00;
-			break;
+			iscsi_page->valid_bitmap= 0x00;
+			iscsi_page->dirty_bitmap= 0x00;
+			if(iscsi_page->iscsi_cache){
+				iscsi_page->iscsi_cache->total_pages--;
+				del_page_from_radix(iscsi_page);
+			}
+			spin_unlock(&lru_lock);
+			return iscsi_page;
 		}
 		iscsi_page=NULL;
 	}
 	spin_unlock(&lru_lock);
-	
-	if(over_bground_thresh(iscsi_cache))
-		wakeup_cache_flusher(iscsi_cache);
 
 	if(iscsi_page==NULL){
 		cache_err("Cache is used up! Wait for write back...\n");
@@ -171,15 +160,11 @@ again:
 		
 		goto again;
 	}
-	if(iscsi_page->iscsi_cache){
-		iscsi_page->iscsi_cache->total_pages--;
-		del_page_from_radix(iscsi_page);
-	}
 	
 	return iscsi_page;
 }
 
-void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page, 
+static void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
 	char *dest, *source;
@@ -206,7 +191,7 @@ void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page,
 	return;
 }
 
-void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page, 
+static void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
 	char *dest, *source;
@@ -234,7 +219,7 @@ void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page,
 
 }
 
-int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* iscsi_page)
+static int cache_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* iscsi_page)
 {
 	int error;
 
@@ -243,7 +228,7 @@ int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* is
 	return error;
 }
 
-struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index)
+static struct iscsi_cache_page* cache_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index)
 {
 
 	struct iscsi_cache_page * iscsi_page;
@@ -253,7 +238,7 @@ struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pg
 	return iscsi_page;
 }
 
-int iscsi_del_page(struct iscsi_cache_page *iscsi_page)
+static int cache_del_page(struct iscsi_cache_page *iscsi_page)
 {
 	spin_lock(&lru_lock);
 	list_del_init(&iscsi_page->lru_list);
@@ -261,10 +246,270 @@ int iscsi_del_page(struct iscsi_cache_page *iscsi_page)
 	spin_unlock(&lru_lock);
 	
 	del_page_from_radix(iscsi_page);
+	iscsi_page->valid_bitmap = iscsi_page->dirty_bitmap = 0xff;
 	iscsi_page->iscsi_cache=NULL;
 	
 	return 0;
 }
+
+/* bitmap is 7-0, Notice the sequence of bitmap*/
+static unsigned char get_bitmap(sector_t lba_off, u32 num){
+	unsigned char a, b;
+	unsigned char bitmap = 0xff;
+
+	BUG_ON(lba_off+num > 8);
+	
+	if((lba_off == 0 && num == 8))
+		return bitmap;
+	
+	a = 0xff << lba_off;
+	b = 0xff >>(8-(lba_off + num));
+	bitmap = (a & b);
+	return bitmap;
+
+}
+
+static int _iscsi_read_from_cache(void *iscsi_cachep, pgoff_t page_index, struct page* page, 
+		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
+{
+	struct iscsi_cache * iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
+	struct iscsi_cache_page *iet_page;
+	int err=0;
+again:
+	iet_page= cache_find_get_page(iscsi_cache, page_index);
+
+	if(iet_page){	/* Read Hit */
+		lock_page(iet_page->page);
+		
+		if((iet_page->valid_bitmap & bitmap) != bitmap){
+			cache_dbg("Valid bitmap is not agreed to bitmap to read.\n");
+			
+			err=cache_check_read_blocks(iet_page, iet_page->valid_bitmap, bitmap);
+			if(unlikely(err)){
+				cache_err("Error occurs when read missed blocks.\n");
+				unlock_page(iet_page->page);
+				return err;
+			}
+			iet_page->valid_bitmap = iet_page->valid_bitmap & bitmap;
+		}
+		
+		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
+
+		unlock_page(iet_page->page);
+		
+		update_lru_list(&iet_page->lru_list);
+		cache_dbg("READ HIT\n");	
+	}else{	/* Read Miss, no page */
+		iet_page=cache_get_free_page(iscsi_cache);
+
+		iet_page->iscsi_cache=iscsi_cache;
+		iet_page->index=page_index;
+
+		lock_page(iet_page->page);
+		
+		err=cache_add_page(iscsi_cache, iet_page);
+		if(unlikely(err)){
+			if(err==-EEXIST){
+				throw_to_lru_list(&iet_page->lru_list);
+				unlock_page(iet_page->page);
+				iet_page=NULL;
+				goto again;
+			}
+			cache_err("Error occurs when read, but reason is not clear.\n");
+			unlock_page(iet_page->page);
+			return err;
+		}
+		cache_rw_page(iet_page, READ);
+		
+		copy_cache_to_tio(iet_page, page,  bitmap, skip_blk, current_bytes);
+		
+		iet_page->valid_bitmap =0xff;
+
+		unlock_page(iet_page->page);
+		
+		iscsi_cache->total_pages++;
+
+		add_to_lru_list(&iet_page->lru_list);
+		
+		cache_dbg("READ MISS, no page\n");
+		}
+	return err;
+}
+
+static int  _iscsi_write_into_cache(void *iscsi_cachep, pgoff_t page_index, struct page* page, 
+		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
+{
+	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
+	struct iscsi_cache_page *iet_page;
+	int err=0;
+		
+again:
+		iet_page= cache_find_get_page(iscsi_cache, page_index);
+
+		if(iet_page == NULL){	/* Write Miss */
+			iet_page=cache_get_free_page(iscsi_cache);
+
+			iet_page->iscsi_cache=iscsi_cache;
+			iet_page->index=page_index;
+
+			lock_page(iet_page->page);
+			err=cache_add_page(iscsi_cache, iet_page);
+			if(unlikely(err)){
+				if(err==-EEXIST){
+					throw_to_lru_list(&iet_page->lru_list);
+					unlock_page(iet_page->page);
+					iet_page=NULL;
+					goto again;
+				}
+				cache_err("Error occurs when write, but reason is not clear.\n");
+				unlock_page(iet_page->page);
+				return err;
+			}
+			
+			copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
+
+			iet_page->valid_bitmap |= bitmap;
+			iet_page->dirty_bitmap |=bitmap;
+			iet_page->dirtied_when = jiffies;
+			
+			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
+			
+			unlock_page(iet_page->page);
+
+			iscsi_cache->total_pages++;
+			iscsi_cache->dirty_pages++;
+			
+			add_to_lru_list(&iet_page->lru_list);
+			
+			if(over_bground_thresh(iscsi_cache))
+				wakeup_cache_flusher(iscsi_cache);
+			
+			cache_dbg("WRITE MISS\n");
+		}else{		/* Write Hit */
+
+			lock_page(iet_page->page);
+			
+			mutex_lock(&iet_page->write);
+			copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
+
+			iet_page->valid_bitmap |= bitmap;
+			if(iet_page->dirty_bitmap == 0){
+				iscsi_cache->dirty_pages++;
+				iet_page->dirtied_when = jiffies;
+			}
+			iet_page->dirty_bitmap |= bitmap;
+			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
+			
+			mutex_unlock(&iet_page->write);
+			
+			unlock_page(iet_page->page);
+			
+			update_lru_list(&iet_page->lru_list);
+			cache_dbg("WRITE HIT\n");
+		}
+		return err;
+}
+
+int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
+{
+	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
+	u32 tio_index = 0;
+	u32 sector_num;
+	int err = 0;
+	char bitmap;
+
+	sector_t lba, alba, lba_off;
+	u64 page_index;
+
+	BUG_ON(ppos%512 != 0);
+
+	/* Main processing loop */
+	while (size && tio_index < pg_cnt) {
+			unsigned int current_bytes, bytes = PAGE_SIZE;
+			unsigned int  skip_blk=0;
+
+			if (bytes > size)
+				bytes = size;
+
+			while(bytes>0){
+				lba=ppos>>9;
+				page_index=lba>>3;
+				alba=page_index<<3;
+				lba_off=lba-alba;
+				
+				cache_dbg("READ ppos=%lld, LBA=%llu, page num=%lu\n", 
+					ppos, lba, (unsigned long)page_index);
+				
+				current_bytes=PAGE_SIZE-(lba_off<<9);
+				if(current_bytes>bytes)
+					current_bytes=bytes;
+				sector_num=current_bytes>>9;
+				bitmap=get_bitmap(lba_off, sector_num);
+
+				_iscsi_read_from_cache(iscsi_cache, page_index, pages[tio_index],
+					bitmap, current_bytes, skip_blk);
+				
+				bytes-=current_bytes;
+				size -=current_bytes;
+				skip_blk+=sector_num;
+				ppos+=current_bytes;
+			}
+			
+			tio_index++;
+	}
+	return err;
+}
+
+int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
+{
+	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
+	u32 tio_index = 0;
+	u32 sector_num;
+	int err = 0;
+	char bitmap;
+
+	sector_t lba, alba, lba_off;
+	u64 page_index;
+
+	/* Main processing loop */
+	while (size && tio_index < pg_cnt) {
+			unsigned int current_bytes, bytes = PAGE_SIZE;
+			unsigned int  skip_blk=0;
+
+			if (bytes > size)
+				bytes = size;
+
+			while(bytes>0){
+				lba=ppos>>9;
+				page_index=lba>>3;
+				alba=page_index<<3;
+				lba_off=lba-alba;
+				
+				cache_dbg("WRITE ppos=%lld, LBA=%llu, page num=%lu\n", 
+					ppos, lba, (unsigned long)page_index);
+				
+				current_bytes=PAGE_SIZE-(lba_off<<9);
+				if(current_bytes>bytes)
+					current_bytes=bytes;
+				sector_num=current_bytes>>9;
+				bitmap=get_bitmap(lba_off, sector_num);
+
+				_iscsi_write_into_cache(iscsi_cache, page_index, pages[tio_index],
+					bitmap, current_bytes, skip_blk);
+				
+				bytes-=current_bytes;
+				size -=current_bytes;
+				skip_blk+=sector_num;
+				ppos+=current_bytes;
+			}
+			
+			tio_index++;
+	}
+	return err;
+}
+
+EXPORT_SYMBOL_GPL(iscsi_write_cache);
+EXPORT_SYMBOL_GPL(iscsi_read_cache);
 
 static int iscsi_page_init(void)
 {
@@ -299,7 +544,6 @@ void* init_iscsi_cache(const char *path)
 	
 	return (void *)iscsi_cache;
 }
-EXPORT_SYMBOL_GPL(init_iscsi_cache);
 
 void del_iscsi_cache(void *iscsi_cachep)
 {
@@ -323,6 +567,7 @@ void del_iscsi_cache(void *iscsi_cachep)
 }
 
 EXPORT_SYMBOL_GPL(del_iscsi_cache);
+EXPORT_SYMBOL_GPL(init_iscsi_cache);
 
 static void iscsi_global_cache_exit(void)
 {
@@ -383,8 +628,7 @@ static int iscsi_global_cache_init(void)
 		page = virt_to_page(tmp_addr);
 		iscsi_page=kmem_cache_alloc(iscsi_page_cache, GFP_KERNEL);
 		
-		iscsi_page->iscsi_cache=NULL;
-		iscsi_page->bdev=NULL;
+		iscsi_page->iscsi_cache = NULL;
 		iscsi_page->index=-1; 
 		
 		iscsi_page->dirty_bitmap=iscsi_page->valid_bitmap=0x00;

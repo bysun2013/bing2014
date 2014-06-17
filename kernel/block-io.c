@@ -21,96 +21,24 @@
 static int
 blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 {
-	struct blockio_data *bio_data = volume->private;
 	u32 size = tio->size;
-	u32 tio_index = 0;
-	u32 sector_num;
-	int err = 0;
-	char bitmap;
 	loff_t ppos = tio->offset;
-	sector_t lba, alba, lba_off;
-	u64 page_index;
+	int err;
 	
-	/* Main processing loop */
-	while (size && tio_index < tio->pg_cnt) {
-			unsigned int current_bytes, bytes = PAGE_SIZE;
-			unsigned int  skip_blk=0;
+	err = iscsi_write_cache(volume->iscsi_cache, tio->pvec, tio->pg_cnt, size, ppos);
 
-			if (bytes > size)
-				bytes = size;
-
-			while(bytes>0){
-				lba=ppos>>9;
-				page_index=lba>>3;
-				alba=page_index<<3;
-				lba_off=lba-alba;
-//printk(KERN_ALERT"WRITE ppos=%lld, LBA=%llu, page num=%lu\n", ppos, lba, (unsigned long)page_index);				
-				current_bytes=PAGE_SIZE-(lba_off<<9);
-				if(current_bytes>bytes)
-					current_bytes=bytes;
-				sector_num=current_bytes>>9;
-				bitmap=get_bitmap(lba_off, sector_num);
-
-				iscsi_write_into_cache(volume->iscsi_cache, bio_data->bdev, page_index, tio->pvec[tio_index],
-					bitmap, current_bytes, skip_blk);
-				
-				bytes-=current_bytes;
-				size -=current_bytes;
-				skip_blk+=sector_num;
-				ppos+=current_bytes;
-			}
-			
-			tio_index++;
-	}
 	return err;
 }
 
 static int
 blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 {
-	struct blockio_data *bio_data = volume->private;
 	u32 size = tio->size;
-	u32 tio_index = 0;
-	u32 sector_num;
-	int err = 0;
-	char bitmap;
 	loff_t ppos = tio->offset;
-	sector_t lba, alba, lba_off;
-	pgoff_t page_index;
+	int err;
+
+	err = iscsi_read_cache(volume->iscsi_cache, tio->pvec, tio->pg_cnt, size, ppos);
 	
-	assert(ppos%512==0);
-
-	/* Main processing loop */
-	while (size && tio_index < tio->pg_cnt) {
-			unsigned int bytes = PAGE_SIZE;
-			unsigned int current_bytes, skip_blk=0;
-
-			if (bytes > size)
-				bytes = size;
-
-			while(bytes>0){
-				lba=ppos>>9;
-				page_index=lba>>3;
-				alba=page_index<<3;
-				lba_off=lba-alba;
-//printk(KERN_ALERT"READ ppos=%lld, LBA=%llu, page num=%lu\n", ppos, lba, (unsigned long)page_index);
-				current_bytes=PAGE_SIZE-(lba_off<<9);
-				if(current_bytes>bytes)
-					current_bytes=bytes;
-				sector_num=current_bytes>>9;
-				bitmap=get_bitmap(lba_off, sector_num);
-				
-				iscsi_read_from_cache(volume->iscsi_cache, bio_data->bdev, page_index, tio->pvec[tio_index],
-					bitmap, current_bytes, skip_blk);
-
-				bytes-=current_bytes;
-				size -=current_bytes;
-				skip_blk+=sector_num;
-				ppos+=current_bytes;
-			}
-			tio_index++;
-	}
-
 	return err;
 }
 static int

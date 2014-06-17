@@ -5,6 +5,7 @@
  */
 #include <linux/freezer.h>
 #include "cache.h"
+#include "cache_wb.h"
 
 struct task_struct *iscsi_wb_forker;
 /*
@@ -25,12 +26,12 @@ unsigned int cache_dirty_expire_interval = 30 * 100; /* centiseconds */
  * why some writeback work was initiated
  */
 enum cache_wb_reason {
-	WB_REASON_BACKGROUND,
-	WB_REASON_SYNC,
-	WB_REASON_PERIODIC,
-	WB_REASON_FORKER_THREAD,
+	ISCSI_WB_REASON_BACKGROUND,
+	ISCSI_WB_REASON_SYNC,
+	ISCSI_WB_REASON_PERIODIC,
+	ISCSI_WB_REASON_FORKER_THREAD,
 
-	WB_REASON_MAX,
+	ISCSI_WB_REASON_MAX,
 };
 
 /*
@@ -206,7 +207,7 @@ continue_unlock:
 			cache_dbg("WRITEBACK one page. Index is %llu, dirty bitmap is %#x.\n", 
 				(unsigned long long)iscsi_page->index, iscsi_page->dirty_bitmap);
 
-			err = blockio_start_write_page_blocks(iscsi_page, iscsi_page->bdev);
+			err = cache_write_page_blocks(iscsi_page);
 			if (unlikely(err)) {
 				cache_err("Error when writeback blocks to device.\n");
 				mutex_unlock(&iscsi_page->write);
@@ -341,7 +342,7 @@ static long cache_wb_background_flush(struct iscsi_cache *wb)
 			.sync_mode	= ISCSI_WB_SYNC_NONE,
 			.for_background	= 1,
 			.range_cyclic	= 1,
-			.reason		= WB_REASON_BACKGROUND,
+			.reason		= ISCSI_WB_REASON_BACKGROUND,
 		};
 		return cache_writeback(wb, &work);
 	}
@@ -357,7 +358,7 @@ static long cache_wb_old_data_flush(struct iscsi_cache *wb)
 		.sync_mode	= ISCSI_WB_SYNC_NONE,
 		.for_kupdate	= 1,
 		.range_cyclic	= 1,
-		.reason		= WB_REASON_PERIODIC,
+		.reason		= ISCSI_WB_REASON_PERIODIC,
 	};
 
 	/*

@@ -19,31 +19,30 @@
 
 #include "cache_dbg.h"
 
+#define CACHE_VERSION "0.2"
+
 extern struct list_head iscsi_cache_list;
 extern struct mutex iscsi_cache_list_lock;
 
 extern unsigned long iscsi_cache_total_pages;
 
-enum{
-	WRITE_BACK,
-	HOST,
-	LOCKED,
+/*
+ * Bits in iscsi_cache.state
+ */
+enum cache_state {
+	CACHE_pending,		/* On its way to being activated */
+	CACHE_wb_alloc,		/* Default embedded wb allocated */
+	CACHE_async_congested,	/* The async (write) queue is getting full */
+	CACHE_sync_congested,	/* The sync queue is getting full */
+	CACHE_writeback_running,	/* Writeback is in progress */
+	CACHE_unused,		/* Available bits start here */
 };
-
-enum iscsi_wb_sync_modes {
-	ISCSI_WB_SYNC_NONE,	/* Don't wait on anything */
-	ISCSI_WB_SYNC_ALL,	/* Wait on every mapping */
-};
-
-#define ISCSICACHE_TAG_DIRTY	0
-#define ISCSICACHE_TAG_WRITEBACK	1
-#define ISCSICACHE_TAG_TOWRITE	2
 
 struct iscsi_cache_page{
 	/* initialize when isolated, no lock needed*/
 	struct iscsi_cache  *iscsi_cache;
 
-	struct block_device *bdev;
+	//struct block_device *bdev;
 	pgoff_t	index;
 
 	/* block is 512 Byte, and page is 4KB */
@@ -60,19 +59,8 @@ struct iscsi_cache_page{
 	struct list_head lru_list;
 };
 
-/*
- * Bits in iscsi_cache.state
- */
-enum cache_state {
-	CACHE_pending,		/* On its way to being activated */
-	CACHE_wb_alloc,		/* Default embedded wb allocated */
-	CACHE_async_congested,	/* The async (write) queue is getting full */
-	CACHE_sync_congested,	/* The sync queue is getting full */
-	CACHE_writeback_running,	/* Writeback is in progress */
-	CACHE_unused,		/* Available bits start here */
-};
-
 #define PATH_LEN 16
+
 struct iscsi_cache{
 	u32 id;
 	char path[PATH_LEN];
@@ -97,45 +85,22 @@ struct iscsi_cache{
 
 };
 
-/* iscsi_cache.c */
-unsigned char get_bitmap(sector_t lba_off, u32 num);
+/* cache IO */
+struct cio {
+       loff_t offset; /* byte offset on target */
+       u32 size; /* total io bytes */
 
-void add_to_lru_list(struct list_head *list);
-void throw_to_lru_list(struct list_head *list);
-void update_lru_list(struct list_head *list);
+       u32 pg_cnt; /* total page count */
+       struct page **pvec; /* array of pages holding data */
 
-void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page, 
-	char bitmap, unsigned int skip_blk, unsigned int bytes);
-void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page, 
-	char bitmap, unsigned int skip_blk, unsigned int bytes);
-
-
-int iscsi_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_page* iscsi_page);
-int iscsi_del_page(struct iscsi_cache_page *iscsi_page);
-struct iscsi_cache_page* iscsi_get_free_page(struct iscsi_cache *iscsi_cache);
-struct iscsi_cache_page* iscsi_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index);
-
+       atomic_t count; /* ref count */
+};
 
 /* cache_rw.c */
-int blockio_start_write_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev);
-
-
-/* writeback.c */
-extern struct task_struct *iscsi_wb_forker;
-void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
-void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
-int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write);
-bool over_bground_thresh(struct iscsi_cache *iscsi_cache);
-void cache_wakeup_timer_fn(unsigned long data);
-void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache);
-int wb_thread_init(void);
-void wb_thread_exit(void);
-
-/* cache_proc.c*/
-
-int cache_procfs_init(void);
-void cache_procfs_exit(void);
-
+int cache_write_page_blocks(struct iscsi_cache_page *iet_page);
+int cache_check_read_blocks(struct iscsi_cache_page *iet_page, 
+	unsigned char valid, unsigned char read);
+int cache_rw_page(struct iscsi_cache_page *iet_page, int rw);
 
 
 #endif

@@ -17,7 +17,7 @@ struct tio_work {
 	struct completion tio_complete;
 };
 
-static void blockio_bio_endio(struct bio *bio, int error)
+static void cache_page_endio(struct bio *bio, int error)
 {
 	struct tio_work *tio_work = bio->bi_private;
 
@@ -37,10 +37,10 @@ static void blockio_bio_endio(struct bio *bio, int error)
 	submit single page segment to the block device, 
 	one segment includes several continuous blocks.
 */
-static int
-blockio_start_rw_single_segment(struct iscsi_cache_page *iet_page,  struct block_device *bdev,
+static int cache_rw_segment(struct iscsi_cache_page *iet_page,
 	unsigned int start, unsigned int blocks, int rw)
 {
+	struct block_device *bdev = iet_page->iscsi_cache->bdev;
 	struct tio_work *tio_work;
 	struct bio *bio = NULL;
 	struct blk_plug plug;
@@ -74,7 +74,7 @@ blockio_start_rw_single_segment(struct iscsi_cache_page *iet_page,  struct block
 	/* bi_sector is ALWAYS in units of 512 bytes */
 	bio->bi_sector = (iet_page->index<<3)+start;
 	bio->bi_bdev = bdev;
-	bio->bi_end_io = blockio_bio_endio;
+	bio->bi_end_io = cache_page_endio;
 	bio->bi_private = tio_work;
 
 	atomic_inc(&tio_work->bios_remaining);
@@ -105,9 +105,9 @@ out:
 	return err;
 }
 
-static int
-blockio_start_rw_page(struct iscsi_cache_page *iet_page,  struct block_device *bdev,  int rw)
+int cache_rw_page(struct iscsi_cache_page *iet_page, int rw)
 {
+	struct block_device *bdev = iet_page->iscsi_cache->bdev;
 	struct tio_work *tio_work;
 	struct bio *bio = NULL;
 	struct blk_plug plug;
@@ -132,7 +132,7 @@ blockio_start_rw_page(struct iscsi_cache_page *iet_page,  struct block_device *b
 	/* bi_sector is ALWAYS in units of 512 bytes */
 	bio->bi_sector = iet_page->index<<3;
 	bio->bi_bdev = bdev;
-	bio->bi_end_io = blockio_bio_endio;
+	bio->bi_end_io = cache_page_endio;
 	bio->bi_private = tio_work;
 	
 	atomic_inc(&tio_work->bios_remaining);
@@ -163,9 +163,7 @@ out:
 }
 
 
-static int
-_blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page, 
-	struct block_device *bdev, unsigned char bitmap, int rw)
+static int _cache_rw_page_blocks(struct iscsi_cache_page *iet_page, unsigned char bitmap, int rw)
 {
 	unsigned int i=0, start=0, last=1, sizes=0;
 	int err=0;
@@ -173,7 +171,7 @@ _blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page,
 
 	/* it's more possible, so detect it first. */
 	if((bitmap & 0xff) == 0xff){
-		err=blockio_start_rw_page(iet_page, bdev, rw);
+		err=cache_rw_page(iet_page, rw);
 		return err;
 	}
 	
@@ -188,7 +186,7 @@ _blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page,
 			last=1;
 		}else{
 			if(last==1){
-				err=blockio_start_rw_single_segment(iet_page, bdev, start, sizes, rw);
+				err=cache_rw_segment(iet_page, start, sizes, rw);
 				if(unlikely(err))
 					goto error;
 				last=0;
@@ -201,7 +199,7 @@ _blockio_start_rw_page_blocks(struct iscsi_cache_page *iet_page,
 		tmp=tmp<<1;
 	}
 	if(bitmap & 0x80){
-		err=blockio_start_rw_single_segment(iet_page, bdev, start, sizes, rw);
+		err=cache_rw_segment(iet_page, start, sizes, rw);
 		if(unlikely(err))
 			goto error;
 	}
@@ -218,19 +216,18 @@ error:
 *
 * Just used in writeback dirty blocks.
 */
-int
-blockio_start_write_page_blocks(struct iscsi_cache_page *iet_page, struct block_device *bdev)
+int cache_write_page_blocks(struct iscsi_cache_page *iet_page)
 {
 	int err;
 	char bitmap=iet_page->dirty_bitmap;
 	
-	err = _blockio_start_rw_page_blocks(iet_page, bdev, bitmap, WRITE);
+	err = _cache_rw_page_blocks(iet_page, bitmap, WRITE);
 	return err;
 }
 /** 
 * If valid bitmap is not agreed to bitmap to read, then read the missed blocks.
 */
-static int check_blocks_to_read(struct iscsi_cache_page *iet_page, struct block_device *bdev,
+int cache_check_read_blocks(struct iscsi_cache_page *iet_page,
 		unsigned char valid, unsigned char read)
 {
 	unsigned char miss;
@@ -238,149 +235,8 @@ static int check_blocks_to_read(struct iscsi_cache_page *iet_page, struct block_
 	miss = valid | read;
 	miss = miss ^ valid;
 
-	err = _blockio_start_rw_page_blocks(iet_page, bdev, miss, READ);
+	err = _cache_rw_page_blocks(iet_page, miss, READ);
 
 	return err;
 }
-int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
-{
-	struct iscsi_cache * iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
-	struct iscsi_cache_page *iet_page;
-	int err=0;
-again:
-	iet_page= iscsi_find_get_page(iscsi_cache, page_index);
-
-	if(iet_page){	/* Read Hit */
-		lock_page(iet_page->page);
-		
-		if((iet_page->valid_bitmap & bitmap) != bitmap){
-			cache_dbg("Valid bitmap is not agreed to bitmap to read.\n");
-			
-			err=check_blocks_to_read(iet_page, bdev, iet_page->valid_bitmap, bitmap);
-			if(unlikely(err)){
-				cache_err("Error occurs when read missed blocks.\n");
-				unlock_page(iet_page->page);
-				return err;
-			}
-			iet_page->valid_bitmap = iet_page->valid_bitmap & bitmap;
-		}
-		
-		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
-
-		unlock_page(iet_page->page);
-		
-		update_lru_list(&iet_page->lru_list);
-		cache_dbg("READ HIT\n");	
-	}else{	/* Read Miss, no page */
-		iet_page=iscsi_get_free_page(iscsi_cache);
-
-		iet_page->iscsi_cache=iscsi_cache;
-		iet_page->bdev=bdev;
-		iet_page->index=page_index;
-
-		lock_page(iet_page->page);
-		
-		err=iscsi_add_page(iscsi_cache, iet_page);
-		if(unlikely(err)){
-			if(err==-EEXIST){
-				throw_to_lru_list(&iet_page->lru_list);
-				unlock_page(iet_page->page);
-				iet_page=NULL;
-				goto again;
-			}
-			cache_err("Error occurs when read, but reason is not clear.\n");
-			unlock_page(iet_page->page);
-			return err;
-		}
-		blockio_start_rw_page(iet_page, bdev, READ);
-		
-		copy_cache_to_tio(iet_page, page,  bitmap, skip_blk, current_bytes);
-		
-		iet_page->valid_bitmap =0xff;
-
-		unlock_page(iet_page->page);
-		
-		iscsi_cache->total_pages++;
-
-		add_to_lru_list(&iet_page->lru_list);
-		
-		cache_dbg("READ MISS, no page\n");
-		}
-	return err;
-}
-
-EXPORT_SYMBOL_GPL(iscsi_read_from_cache);
-
-int  iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
-{
-		struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
-		struct iscsi_cache_page *iet_page;
-		int err=0;
-again:
-		iet_page= iscsi_find_get_page(iscsi_cache, page_index);
-
-		if(iet_page == NULL){	/* Write Miss */
-			iet_page=iscsi_get_free_page(iscsi_cache);
-
-			iet_page->iscsi_cache=iscsi_cache;
-			iet_page->bdev=bdev;
-			iet_page->index=page_index;
-
-			lock_page(iet_page->page);
-			err=iscsi_add_page(iscsi_cache, iet_page);
-			if(unlikely(err)){
-				if(err==-EEXIST){
-					throw_to_lru_list(&iet_page->lru_list);
-					unlock_page(iet_page->page);
-					iet_page=NULL;
-					goto again;
-				}
-				cache_err("Error occurs when write, but reason is not clear.\n");
-				unlock_page(iet_page->page);
-				return err;
-			}
-			
-			copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
-
-			iet_page->valid_bitmap |= bitmap;
-			iet_page->dirty_bitmap |=bitmap;
-			iet_page->dirtied_when = jiffies;
-			
-			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
-			
-			unlock_page(iet_page->page);
-
-			iscsi_cache->total_pages++;
-			iscsi_cache->dirty_pages++;
-			
-			add_to_lru_list(&iet_page->lru_list);
-			cache_dbg("WRITE MISS\n");
-		}else{		/* Write Hit */
-
-			lock_page(iet_page->page);
-			
-			mutex_lock(&iet_page->write);
-			copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
-
-			iet_page->valid_bitmap |= bitmap;
-			if(iet_page->dirty_bitmap == 0){
-				iscsi_cache->dirty_pages++;
-				iet_page->dirtied_when = jiffies;
-			}
-			iet_page->dirty_bitmap |= bitmap;
-			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
-			
-			mutex_unlock(&iet_page->write);
-			
-			unlock_page(iet_page->page);
-			
-			update_lru_list(&iet_page->lru_list);
-			cache_dbg("WRITE HIT\n");
-		}
-		return err;
-}
-EXPORT_SYMBOL_GPL(iscsi_write_into_cache);
-
 

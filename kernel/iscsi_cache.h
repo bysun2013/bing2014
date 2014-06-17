@@ -7,12 +7,11 @@
 #ifndef ISCSI_CACHE_H
 #define ISCSI_CACHE_H
 
-extern char get_bitmap(sector_t lba_off, u32 num);
+extern int iscsi_read_cache(void *iscsi_cache, struct page **pages,
+		u32 pg_cnt, u32 size, loff_t ppos);
 
-extern int iscsi_read_from_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
-extern int iscsi_write_into_cache(void *iscsi_cachep, struct block_device *bdev, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk);
+extern int iscsi_write_cache(void *iscsi_cache, struct page **pages,
+		u32 pg_cnt, u32 size, loff_t ppos);
 
 extern void * init_iscsi_cache(const char* path);
 extern void del_iscsi_cache(void *iscsi_cachep);
