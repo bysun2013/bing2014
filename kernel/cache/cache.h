@@ -42,7 +42,7 @@ struct iscsi_cache_page{
 	/* initialize when isolated, no lock needed*/
 	struct iscsi_cache  *iscsi_cache;
 
-	//struct block_device *bdev;
+	dev_t	device_id;
 	pgoff_t	index;
 
 	/* block is 512 Byte, and page is 4KB */

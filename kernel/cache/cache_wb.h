@@ -13,6 +13,8 @@
 #define ISCSICACHE_TAG_WRITEBACK	1
 #define ISCSICACHE_TAG_TOWRITE	2
 
+#define PVEC_SIZE		16
+
 enum{
 	WRITE_BACK,
 	HOST,
@@ -22,6 +24,55 @@ enum{
 enum iscsi_wb_sync_modes {
 	ISCSI_WB_SYNC_NONE,	/* Don't wait on anything */
 	ISCSI_WB_SYNC_ALL,	/* Wait on every mapping */
+};
+
+/*
+ * why some writeback work was initiated
+ */
+enum cache_wb_reason {
+	ISCSI_WB_REASON_BACKGROUND,
+	ISCSI_WB_REASON_SYNC,
+	ISCSI_WB_REASON_PERIODIC,
+	ISCSI_WB_REASON_FORKER_THREAD,
+
+	ISCSI_WB_REASON_MAX,
+};
+
+/*
+ * A control structure which tells the writeback code what to do.  These are
+ * always on the stack, and hence need no locking.  They are always initialised
+ * in a manner such that unspecified fields are set to zero.
+ */
+struct cache_writeback_control {
+	long nr_to_write;		/* Write this many pages, and decrement
+					   this for each page written */
+					   	
+	loff_t range_start;
+	loff_t range_end;
+
+	enum iscsi_wb_sync_modes mode;
+
+	unsigned for_kupdate:1;		/* A kupdate writeback */
+	unsigned for_background:1;	/* A background writeback */
+	unsigned range_cyclic:1;	/* range_start is cyclic */
+};
+
+/*
+ * Passed into cache_wb_writeback(), essentially a subset of writeback_control
+ */
+struct cache_writeback_work {
+	long nr_pages;
+	struct iscsi_cache *cache;
+	unsigned long *older_than_this;   /* may be used in the future */
+	enum iscsi_wb_sync_modes sync_mode;
+	
+	unsigned int for_kupdate:1;
+	unsigned int range_cyclic:1;
+	unsigned int for_background:1;
+	enum cache_wb_reason reason;		/* why was writeback initiated? */
+
+	struct list_head list;		/* pending work list */
+	struct completion *done;	/* set if the caller waits */
 };
 
 extern struct task_struct *iscsi_wb_forker;

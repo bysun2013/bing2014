@@ -22,38 +22,6 @@ unsigned int cache_dirty_writeback_interval = 5 * 100; /* centiseconds */
 unsigned int cache_dirty_expire_interval = 30 * 100; /* centiseconds */
 
 
-/*
- * why some writeback work was initiated
- */
-enum cache_wb_reason {
-	ISCSI_WB_REASON_BACKGROUND,
-	ISCSI_WB_REASON_SYNC,
-	ISCSI_WB_REASON_PERIODIC,
-	ISCSI_WB_REASON_FORKER_THREAD,
-
-	ISCSI_WB_REASON_MAX,
-};
-
-/*
- * Passed into cache_wb_writeback(), essentially a subset of writeback_control
- */
-struct cache_writeback_work {
-	long nr_pages;
-	struct iscsi_cache *cache;
-	unsigned long *older_than_this;   /* may be used in the future */
-	enum iscsi_wb_sync_modes sync_mode;
-	unsigned int tagged_writepages:1;
-	unsigned int for_kupdate:1;
-	unsigned int range_cyclic:1;
-	unsigned int for_background:1;
-	enum cache_wb_reason reason;		/* why was writeback initiated? */
-
-	struct list_head list;		/* pending work list */
-	struct completion *done;	/* set if the caller waits */
-};
-
-#define PVEC_SIZE		16
-
 void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
 {
 	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
@@ -144,19 +112,18 @@ repeat:
 	return ret;
 }
 
-/* return nr of wrote pages */
-int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write)
+int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_writeback_control *wbc)
 {
 	int err = 0;
 	int done = 0;
-	unsigned long nr_pages, wrote = 0;
+
 	struct iscsi_cache_page *pages[PVEC_SIZE];
 	pgoff_t index=0;
-	pgoff_t end=ULONG_MAX;
-	pgoff_t done_index;
+	pgoff_t end=wbc->range_end;
+	unsigned long  nr_pages = wbc->nr_to_write;
 	int tag;
-	
-	if (mode == ISCSI_WB_SYNC_ALL)
+
+	if (wbc->mode == ISCSI_WB_SYNC_ALL)
 		tag = ISCSICACHE_TAG_TOWRITE;
 	else
 		tag = ISCSICACHE_TAG_DIRTY;
@@ -164,9 +131,9 @@ int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigne
 	if(!iscsi_cache)
 		return 0;
 	
-	if (mode == ISCSI_WB_SYNC_ALL)
+	if (wbc->mode == ISCSI_WB_SYNC_ALL)
 		iscsi_tag_pages_for_writeback(iscsi_cache, index, end);
-	done_index = index;
+	
 	while (!done && (index <= end)) {
 		int i;
 		nr_pages = iscsi_find_get_pages_tag(iscsi_cache, &index, tag,
@@ -182,8 +149,6 @@ int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigne
 				break;
 			}
 
-			done_index = iscsi_page->index;
-
 			lock_page(iscsi_page->page);
 
 			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
@@ -198,7 +163,7 @@ continue_unlock:
 			}
 
 			if (!mutex_trylock(&iscsi_page->write)) {
-				if (mode == ISCSI_WB_SYNC_ALL)
+				if (wbc->mode == ISCSI_WB_SYNC_ALL)
 					mutex_lock(&iscsi_page->write);
 				else
 					goto continue_unlock;
@@ -209,7 +174,6 @@ continue_unlock:
 
 			err = cache_write_page_blocks(iscsi_page);
 			if (unlikely(err)) {
-				cache_err("Error when writeback blocks to device.\n");
 				mutex_unlock(&iscsi_page->write);
 				goto continue_unlock;
 			}
@@ -217,12 +181,12 @@ continue_unlock:
 			mutex_unlock(&iscsi_page->write);
 			
 			iscsi_clear_page_tag(iscsi_page, tag);
-			if(mode == ISCSI_WB_SYNC_ALL)
+			if(wbc->mode == ISCSI_WB_SYNC_ALL)
 				iscsi_clear_page_tag(iscsi_page, ISCSICACHE_TAG_TOWRITE);
 
-			wrote++;
 			iscsi_cache->dirty_pages--;
-			if(--pages_to_write < 1){
+			wbc->nr_to_write--;
+			if(wbc->nr_to_write < 1){
 				done=1;
 				unlock_page(iscsi_page->page);
 				break;
@@ -230,8 +194,26 @@ continue_unlock:
 			unlock_page(iscsi_page->page);
 		}
 		cond_resched();
-	}
-	return wrote;
+	}	
+
+	return err;
+}
+
+/* return nr of wrote pages */
+int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write)
+{
+	int err;
+
+	struct cache_writeback_control wbc = {
+		.nr_to_write = pages_to_write,
+		.mode = mode,
+		.range_start = 0,
+		.range_end = ULONG_MAX,
+	};
+	
+	err = cache_writeback_block_device(iscsi_cache, &wbc);
+	
+	return (pages_to_write - wbc.nr_to_write);
 }
 
 int writeback_all(void){
@@ -301,7 +283,7 @@ static unsigned long cache_longest_inactive(void)
 	return max(5UL * 60 * HZ, interval);
 }
 
-static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work *work)
+static long cache_writeback(struct iscsi_cache *iscsi_cache, struct cache_writeback_work *work)
 {
 	long nr_pages = work->nr_pages;
 	unsigned long oldest_jif;
@@ -314,7 +296,7 @@ static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work 
 		if (work->nr_pages <= 0)
 			break;
 
-		if (work->for_background && !over_bground_thresh(wb))
+		if (work->for_background && !over_bground_thresh(iscsi_cache))
 			break;
 
 		if (work->for_kupdate) {
@@ -322,9 +304,9 @@ static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work 
 		} else if (work->for_background)
 			oldest_jif = jiffies;
 
-		progress = writeback_single(wb, work->sync_mode, nr_pages);
+		progress = writeback_single(iscsi_cache, work->sync_mode, nr_pages);
 		
-		work->nr_pages-=progress;
+		work->nr_pages -= progress;
 
 		if(!progress)
 			break;
@@ -334,27 +316,27 @@ static long cache_writeback(struct iscsi_cache *wb, struct cache_writeback_work 
 }
 
 /* when dirty ratio is over thresh, it's executed */
-static long cache_wb_background_flush(struct iscsi_cache *wb)
+static long cache_wb_background_flush(struct iscsi_cache *iscsi_cache)
 {
-	if (over_bground_thresh(wb)) {
+	if (over_bground_thresh(iscsi_cache)) {
 		struct cache_writeback_work work = {
-			.nr_pages	= LONG_MAX,
+			.nr_pages	= ULONG_MAX,
 			.sync_mode	= ISCSI_WB_SYNC_NONE,
 			.for_background	= 1,
 			.range_cyclic	= 1,
 			.reason		= ISCSI_WB_REASON_BACKGROUND,
 		};
-		return cache_writeback(wb, &work);
+		return cache_writeback(iscsi_cache, &work);
 	}
 	return 0;
 }
 
 /* wakes up periodically and does kupdated style flushing. */
-static long cache_wb_old_data_flush(struct iscsi_cache *wb)
+static long cache_wb_old_data_flush(struct iscsi_cache *iscsi_cache)
 {
 	unsigned long expired;
 	struct cache_writeback_work work = {
-		.nr_pages	= wb->dirty_pages,
+		.nr_pages	= iscsi_cache->dirty_pages,
 		.sync_mode	= ISCSI_WB_SYNC_NONE,
 		.for_kupdate	= 1,
 		.range_cyclic	= 1,
@@ -367,30 +349,30 @@ static long cache_wb_old_data_flush(struct iscsi_cache *wb)
 	if (!cache_dirty_writeback_interval)
 		return 0;
 
-	expired = wb->last_old_flush +
+	expired = iscsi_cache->last_old_flush +
 			msecs_to_jiffies(cache_dirty_writeback_interval * 10);
 	if (time_before(jiffies, expired))
 		return 0;
 
-	wb->last_old_flush = jiffies;
-	cache_wakeup_thread_delayed(wb);
+	iscsi_cache->last_old_flush = jiffies;
+	cache_wakeup_thread_delayed(iscsi_cache);
 
-	return cache_writeback(wb, &work);
+	return cache_writeback(iscsi_cache, &work);
 }
 
 /*
  * Retrieve work items and do the writeback they describe
  */
-static long cache_do_writeback(struct iscsi_cache *wb)
+static long cache_do_writeback(struct iscsi_cache *iscsi_cache)
 {
 	long wrote = 0;
 
-	set_bit(CACHE_writeback_running, &wb->state);
+	set_bit(CACHE_writeback_running, &iscsi_cache->state);
 	
-	wrote += cache_wb_old_data_flush(wb);
-	wrote += cache_wb_background_flush(wb);
+	wrote += cache_wb_old_data_flush(iscsi_cache);
+	wrote += cache_wb_background_flush(iscsi_cache);
 	
-	clear_bit(CACHE_writeback_running, &wb->state);
+	clear_bit(CACHE_writeback_running, &iscsi_cache->state);
 
 	return wrote;
 }

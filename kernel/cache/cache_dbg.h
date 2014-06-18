@@ -52,7 +52,7 @@
 
 
 #define cache_dbg(fmt, args...) \
-	dprintk(KERN_DEBUG, fmt, ##args)
+	dprintk(KERN_EMERG, fmt, ##args)
 #define cache_info(fmt, args...) \
 	eprintk(KERN_INFO, fmt, ##args)
 #define cache_warn(fmt, args...) \
