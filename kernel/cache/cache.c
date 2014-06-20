@@ -38,8 +38,6 @@ static spinlock_t		lru_lock;
 struct list_head iscsi_cache_list;
 struct mutex iscsi_cache_list_lock;
 
-//struct cache_connection *cache_conn;
-
 static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache_page *page, 
 		gfp_t gfp_mask)
 {
@@ -238,23 +236,29 @@ static struct iscsi_cache_page* cache_find_get_page(struct iscsi_cache *iscsi_ca
 	return iscsi_page;
 }
 
-static int cache_del_page(struct iscsi_cache_page *iscsi_page)
+/* Lock strategy is not good */
+int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 {
+	struct iscsi_cache_page *iscsi_page;
+
+	iscsi_page = find_page_from_radix(iscsi_cache, index);
+	
 	spin_lock(&lru_lock);
 	list_del_init(&iscsi_page->lru_list);
 	list_add(&iscsi_page->lru_list, &lru);
 	spin_unlock(&lru_lock);
-
+	
 	lock_page(iscsi_page->page);
 	
 	del_page_from_radix(iscsi_page);
-	iscsi_page->valid_bitmap = iscsi_page->dirty_bitmap = 0xff;
+	iscsi_page->valid_bitmap = iscsi_page->dirty_bitmap = 0x0;
 	iscsi_page->iscsi_cache=NULL;
 	iscsi_page->flag = 0;
 	iscsi_page->index = 0;
 
 	unlock_page(iscsi_page->page);
-	
+
+	cache_dbg("Write out one page from cache, index = %ld\n", index);
 	return 0;
 }
 
@@ -475,6 +479,12 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 
 	sector_t lba, alba, lba_off;
 	u64 page_index;
+	
+	BUG_ON(ppos%512 != 0);
+
+	if(iscsi_cache->owner){
+		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, size, ppos>>9);
+	}
 
 	/* Main processing loop */
 	while (size && tio_index < pg_cnt) {
@@ -510,6 +520,7 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 			
 			tio_index++;
 	}
+
 	return err;
 }
 
@@ -522,14 +533,14 @@ static int iscsi_page_init(void)
 	return  iscsi_page_cache ? 0 : -ENOMEM;
 }
 
-void* init_iscsi_cache(const char *path)
+void* init_iscsi_cache(const char *path, const char *inet_addr, const char *inet_peer_addr, int port, bool owner)
 {
 	struct iscsi_cache *iscsi_cache;
 	iscsi_cache=kzalloc(sizeof(*iscsi_cache),GFP_KERNEL);
 	if(!iscsi_cache)
 		return NULL;
 
-	memcpy(&iscsi_cache->path, path, PATH_LEN);
+	memcpy(&iscsi_cache->path, path, strlen(path));
 
 	iscsi_cache->bdev = blkdev_get_by_path(path, 
 		(FMODE_READ |FMODE_WRITE), THIS_MODULE);
@@ -546,6 +557,16 @@ void* init_iscsi_cache(const char *path)
 	mutex_lock(&iscsi_cache_list_lock);
 	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
 	mutex_unlock(&iscsi_cache_list_lock);
+
+	if(!inet_addr){
+		cache_err("Error, inet addr is NULL.\n");
+	}
+	memcpy(iscsi_cache->inet_addr, inet_addr, strlen(inet_addr));
+	memcpy(iscsi_cache->inet_peer_addr, inet_peer_addr, strlen(inet_peer_addr));
+	iscsi_cache->port = port;
+	iscsi_cache->owner = owner;
+	iscsi_cache->conn = cache_conn_init(iscsi_cache);
+	
 	
 	return (void *)iscsi_cache;
 }
@@ -564,6 +585,8 @@ void del_iscsi_cache(void *iscsi_cachep)
 		kthread_stop(iscsi_cache->task);
 	
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
+
+	cache_conn_exit(iscsi_cache);
 
 	blkdev_put(iscsi_cache->bdev, (FMODE_READ |FMODE_WRITE));
 	cache_dbg("Good, release block device.\n");
@@ -594,6 +617,8 @@ static void iscsi_global_cache_exit(void)
 	
 	if(iscsi_page_cache)
 		kmem_cache_destroy(iscsi_page_cache);
+
+	cio_exit();
 	
 	cache_info("Unload iSCSI Cache Module. All right \n");
 }
@@ -619,6 +644,9 @@ static int iscsi_global_cache_init(void)
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
 	
 	if((err=iscsi_page_init())< 0)
+		goto error;
+
+	if((err=cio_init())< 0)
 		goto error;
 
 	INIT_LIST_HEAD(&lru);

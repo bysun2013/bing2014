@@ -18,8 +18,9 @@
 #include <linux/timer.h>
 
 #include "cache_dbg.h"
+#include "cache_conn/cache_conn.h"
 
-#define CACHE_VERSION "0.2"
+#define CACHE_VERSION "0.02"
 
 extern struct list_head iscsi_cache_list;
 extern struct mutex iscsi_cache_list_lock;
@@ -64,7 +65,16 @@ struct iscsi_cache_page{
 struct iscsi_cache{
 	u32 id;
 	char path[PATH_LEN];
+
+	/* Inter-connection of Cache */
+	bool owner;
+	char inet_addr[PATH_LEN];
+	char inet_peer_addr[PATH_LEN];
+	int port;
+	
 	struct block_device *bdev;
+	
+	struct cache_connection * conn;
 	
 	struct list_head list;		/* list all of radix tree in cache */
 	
@@ -95,6 +105,8 @@ struct cio {
 
        atomic_t count; /* ref count */
 };
+
+int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index);
 
 /* cache_rw.c */
 int cache_write_page_blocks(struct iscsi_cache_page *iet_page);

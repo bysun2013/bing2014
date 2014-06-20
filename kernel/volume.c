@@ -13,6 +13,21 @@
 #include "iscsi_dbg.h"
 #include "iotype.h"
 
+/* Change it when installed in different host. */
+#define CACHE_MASTER 1
+
+#if CACHE_MASTER
+static const char *echo_host="10.17.11.79";
+static const char *echo_peer="10.17.11.59";
+static bool owner = true;
+#else
+static const char *echo_host="10.17.11.59";
+static const char *echo_peer="10.17.11.79";
+static bool owner = false;
+#endif
+
+static const int echo_port=7799;
+
 struct iet_volume *volume_lookup(struct iscsi_target *target, u32 lun)
 {
 	struct iet_volume *volume;
@@ -288,7 +303,8 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 	
 	/* initialize iscsi cache */
 	bio_data = volume->private;
-	volume->iscsi_cache = init_iscsi_cache(bio_data->path); 
+	/* Here need to be set referring to userspace*/ 
+	volume->iscsi_cache = init_iscsi_cache(bio_data->path, echo_host, echo_peer, echo_port, owner); 
 	if(!volume->iscsi_cache){
 		ret = -ENOMEM;
 		goto free_args;

@@ -117,6 +117,9 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 	int err = 0;
 	int done = 0;
 
+	/* used for cache sync, only support page size now */
+	pgoff_t wb_index[PVEC_SIZE];
+	
 	struct iscsi_cache_page *pages[PVEC_SIZE];
 	pgoff_t index=0;
 	pgoff_t end=wbc->range_end;
@@ -136,6 +139,7 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 	
 	while (!done && (index <= end)) {
 		int i;
+		int wrote_index = 0;
 		nr_pages = iscsi_find_get_pages_tag(iscsi_cache, &index, tag,
 			      min(end - index, (pgoff_t)PVEC_SIZE-1) + 1, pages);
 		if (nr_pages == 0)
@@ -183,7 +187,7 @@ continue_unlock:
 			iscsi_clear_page_tag(iscsi_page, tag);
 			if(wbc->mode == ISCSI_WB_SYNC_ALL)
 				iscsi_clear_page_tag(iscsi_page, ISCSICACHE_TAG_TOWRITE);
-
+			
 			iscsi_cache->dirty_pages--;
 			wbc->nr_to_write--;
 			if(wbc->nr_to_write < 1){
@@ -192,7 +196,14 @@ continue_unlock:
 				break;
 			}
 			unlock_page(iscsi_page->page);
+			
+			wb_index[wrote_index++]= iscsi_page->index;
 		}
+		
+		/* submit page index of written pages to peer */
+//		if(iscsi_cache->owner)
+//			cache_send_wrote(iscsi_cache->conn, wb_index, wrote_index);
+		
 		cond_resched();
 	}	
 
