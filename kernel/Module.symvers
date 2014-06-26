@@ -1,4 +1,4 @@
 0xd2bda9cd	iscsi_read_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
-0xff2c336d	init_iscsi_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
+0x75459334	init_iscsi_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
 0x7ad7ec66	del_iscsi_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL
 0x9e75b380	iscsi_write_cache	/media/sf_iet/kernel/cache/iscsi_caches	EXPORT_SYMBOL_GPL

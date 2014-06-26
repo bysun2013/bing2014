@@ -158,6 +158,7 @@ struct iscsi_queue {
 
 struct iet_volume {
 	u32 lun;
+	int  machine_dest;
 
 	enum iscsi_device_state l_state;
 	atomic_t l_count;

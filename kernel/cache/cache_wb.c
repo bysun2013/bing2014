@@ -201,8 +201,8 @@ continue_unlock:
 		}
 		
 		/* submit page index of written pages to peer */
-//		if(iscsi_cache->owner)
-//			cache_send_wrote(iscsi_cache->conn, wb_index, wrote_index);
+		//if(iscsi_cache->owner)
+		//	cache_send_wrote(iscsi_cache->conn, wb_index, wrote_index);
 		
 		cond_resched();
 	}	
@@ -221,6 +221,9 @@ int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigne
 		.range_start = 0,
 		.range_end = ULONG_MAX,
 	};
+
+	if(!iscsi_cache->owner)
+		return 0;
 	
 	err = cache_writeback_block_device(iscsi_cache, &wbc);
 	
@@ -476,6 +479,9 @@ static int cache_forker_thread(void * args)
 
 		switch (action) {
 		case FORK_THREAD:
+			/* if this machine don't own the volume, ignore it */
+			if(!iscsi_cache->owner)
+				break;			
 			__set_current_state(TASK_RUNNING);
 			task = kthread_create(cache_writeback_thread, iscsi_cache,
 					      "icache-flush-%d", iscsi_cache->id);

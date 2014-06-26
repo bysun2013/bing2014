@@ -11,14 +11,14 @@ static int decode_header(struct cache_connection *tconn, void *header, struct pa
 	unsigned int header_size = cache_header_size(tconn);
 
 	if (header_size == sizeof(struct p_header80) &&
-		   *(__be32 *)header == cpu_to_be32(CACHE_MAGIC)) {
+		   *(__be16 *)header == cpu_to_be16(CACHE_MAGIC)) {
 		struct p_header80 *h = header;
 		pi->cmd = be16_to_cpu(h->command);
-		pi->size = be16_to_cpu(h->length);
+		pi->size = be32_to_cpu(h->length);
 		pi->vnr = 0;
 	} else {
 		cache_err("Wrong magic value 0x%08x in \n",
-			 be32_to_cpu(*(__be32 *)header));
+			 be16_to_cpu(*(__be16 *)header));
 		return -EINVAL;
 	}
 	pi->data = header + header_size;
@@ -159,11 +159,11 @@ read_in_block(struct cache_connection *connection, sector_t sector,
 	
 	ds = data_size;
 	
-	WARN_ON(ds%PAGE_SIZE != 0);
+//	WARN_ON(ds%PAGE_SIZE != 0);
 	
 	for(i=0;i<nr_pages; i++){
 		unsigned len = min_t(int, ds, PAGE_SIZE);
-		WARN_ON(len%PAGE_SIZE != 0);
+		//WARN_ON(len%PAGE_SIZE != 0);
 		page = req->pvec[i];
 		data = kmap(page);
 		err = cache_recv_all_warn(connection, data, len);

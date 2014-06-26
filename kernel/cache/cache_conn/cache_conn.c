@@ -244,7 +244,7 @@ static struct socket *cache_try_connect(struct cache_connection *connection)
 	struct sockaddr_in6 peer_in6;
 
 	int err, peer_addr_len, my_addr_len;
-//	int sndbuf_size, rcvbuf_size, connect_int;
+	int sndbuf_size, rcvbuf_size, connect_int = 5;
 	int disconnect_on_error = 1;
 /*
 	rcu_read_lock();
@@ -276,11 +276,11 @@ static struct socket *cache_try_connect(struct cache_connection *connection)
 		sock = NULL;
 		goto out;
 	}
-/*
-	sock->sk->sk_rcvtimeo =
-	sock->sk->sk_sndtimeo = connect_int * HZ;
-	cache_setbufsize(sock, sndbuf_size, rcvbuf_size);
-*/
+
+//	sock->sk->sk_rcvtimeo =
+//	sock->sk->sk_sndtimeo = connect_int * HZ;
+//cache_setbufsize(sock, sndbuf_size, rcvbuf_size);
+
        /* explicitly bind to the configured IP as source IP
 	*  for the outgoing connections.
 	*  This is needed for multihomed hosts and to be
@@ -586,10 +586,6 @@ int cache_receiver(struct cache_thread *thi)
 
 	do {
 		h = conn_connect(connection);
-
-		if (h == -1) {
-			cache_warn("Discarding network configuration.\n");
-		}
 	} while (h == -1);
 
 	if (h == 0){

@@ -30,12 +30,12 @@
 
 
 /* magic numbers used in meta data and network packets */
-#define CACHE_MAGIC 0x83740267
+#define CACHE_MAGIC 0x835a
 
 struct p_header80 {
-	u32	  magic;
+	u16	  magic;
 	u16	  command;
-	u16	  length;	/* bytes of data after this header */
+	u32	  length;	/* bytes of data after this header */
 } __packed;
 
 struct p_data {

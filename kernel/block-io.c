@@ -69,7 +69,7 @@ blockio_open_path(struct iet_volume *volume, const char *path)
 /* Create an enumeration of our accepted actions */
 enum
 {
-	opt_path, opt_ignore, opt_err,
+	opt_path, opt_ignore, opt_dest, opt_err,
 };
 
 /* Create a match table using our action enums and their matching options */
@@ -80,6 +80,7 @@ static match_table_t tokens = {
 	{opt_ignore, "type=%s"},
 	{opt_ignore, "iomode=%s"},
 	{opt_ignore, "blocksize=%s"},
+	{opt_dest, "dest=%s"},
 	{opt_err, NULL},
 };
 
@@ -119,6 +120,8 @@ parse_blockio_params(struct iet_volume *volume, char *params)
 				goto out;
 			break;
 		case opt_ignore:
+			break;
+		case opt_dest:
 			break;
 		default:
 			iprintk("Target %s, LUN %u: unknown param %s\n",
@@ -206,7 +209,8 @@ blockio_show(struct iet_volume *volume, struct seq_file *seq)
 	struct blockio_data *bio_data = volume->private;
 
 	/* Used to display blockio volume info in /proc/net/iet/volumes */
-	seq_printf(seq, " path:%s\n", bio_data->path);
+	//seq_printf(seq, " path:%s\n", bio_data->path);
+	seq_printf(seq, " path:%s", bio_data->path);
 }
 
 struct iotype blockio = {

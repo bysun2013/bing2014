@@ -34,9 +34,9 @@ void *conn_prepare_command(struct cache_connection *conn, struct cache_socket *s
 
 static unsigned int prepare_header80(struct p_header80 *h, enum cache_packet cmd, int size)
 {
-	h->magic   = cpu_to_be32(CACHE_MAGIC);
+	h->magic   = cpu_to_be16(CACHE_MAGIC);
 	h->command = cpu_to_be16(cmd);
-	h->length  = cpu_to_be16(size);
+	h->length  = cpu_to_be32(size);
 	return sizeof(struct p_header80);
 }
 
@@ -87,12 +87,15 @@ int cache_send(struct cache_connection *connection, struct socket *sock,
  * do we need to block cache_SIG if sock == &meta.socket ??
  * otherwise wake_asender() might interrupt some send_*Ack !
  */
+ 		int retry = 5;
 		rv = kernel_sendmsg(sock, &msg, &iov, 1, size);
 		if (rv == -EAGAIN) {
 /*			if (we_should_drop_the_connection(connection, sock))
 				break;
 			else*/
+			if(retry--)
 				continue;
+			break;
 		}
 		if (rv == -EINTR) {
 			flush_signals(current);
@@ -199,7 +202,9 @@ static int _cache_no_send_page(struct cache_connection*conn, struct page *page,
 	addr = kmap(page) + offset;
 	err = cache_send_all(conn, socket, addr, size, msg_flags);
 	kunmap(page);
-
+	if(err){
+		cache_err("Error occurs when send data.\n");
+	}
 	return err;
 }
 
@@ -249,24 +254,26 @@ static int _cache_send_page(struct cache_connection*conn, struct page *page,
 }
 
 static int _cache_send_pages(struct cache_connection *conn, struct page **pages, 
-				int count, sector_t sector)
+				int count, size_t size, sector_t sector)
 {
 	int i;
+	int len;
 	/* hint all but last page with MSG_MORE */
 	for (i = 0; i < count; i++){
 		int err;
-
+		len = min_t(int, PAGE_SIZE, size);
 		err = _cache_no_send_page(conn, pages[i],
-					 0, PAGE_SIZE,
+					 0, len,
 					 i == count - 1 ? 0 : MSG_MORE);
 		if (err)
 			return err;
+		size -=len;
 	}
 	return 0;
 }
 
 static int _cache_send_zc_pages(struct cache_connection *conn, struct page **pages, 
-				int count, sector_t sector)
+				int count, size_t size, sector_t sector)
 {
 	int i;
 	/* hint all but last page with MSG_MORE */
@@ -290,7 +297,7 @@ int cache_send_dblock(struct cache_connection *connection, struct page **pages,
 
 	int err;
 	/* FIXME just support page size */
-	size = ((size+ PAGE_SIZE-1)>>PAGE_SHIFT)<<PAGE_SHIFT;
+	//size = ((size+ PAGE_SIZE-1)>>PAGE_SHIFT)<<PAGE_SHIFT;
 	sock = &connection->data;
 	
 	p = conn_prepare_command(connection, sock);
@@ -304,8 +311,10 @@ int cache_send_dblock(struct cache_connection *connection, struct page **pages,
 	cache_dbg("begin to send data.\n");
 
 	err = __send_command(connection, sock, P_DATA, sizeof(*p), NULL, size); /* size of total data written to device */
+	
+	cache_dbg("finish sending cmd, begin to send data.\n");
 	if (!err) {
-		err = _cache_send_pages(connection, pages, count, sector); 
+		err = _cache_send_pages(connection, pages, count, size, sector);
 	}
 	cache_dbg("finish sending data.\n");
 	

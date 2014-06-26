@@ -119,7 +119,7 @@ static int open_path(struct iet_volume *volume, const char *path)
 }
 
 enum {
-	opt_path, opt_ignore, opt_err,
+	opt_path, opt_ignore, opt_dest, opt_err,
 };
 
 static match_table_t tokens = {
@@ -129,6 +129,7 @@ static match_table_t tokens = {
 	{opt_ignore, "type=%s"},
 	{opt_ignore, "iomode=%s"},
 	{opt_ignore, "blocksize=%s"},
+	{opt_dest, "dest=%s"},
 	{opt_err, NULL},
 };
 
@@ -164,6 +165,8 @@ static int parse_fileio_params(struct iet_volume *volume, char *params)
 				goto out;
 			break;
 		case opt_ignore:
+			break;
+		case opt_dest:
 			break;
 		default:
 			iprintk("Target %s, LUN %u: unknown param %s\n",
@@ -240,7 +243,8 @@ out:
 static void fileio_show(struct iet_volume *lu, struct seq_file *seq)
 {
 	struct fileio_data *p = lu->private;
-	seq_printf(seq, " path:%s\n", p->path);
+	//seq_printf(seq, " path:%s\n", p->path);
+	seq_printf(seq, " path:%s", p->path);
 }
 
 struct iotype fileio =

@@ -19,6 +19,7 @@
 
 #include "cache_dbg.h"
 #include "cache_conn/cache_conn.h"
+#include "iet_cache_u.h"
 
 #define CACHE_VERSION "0.02"
 
@@ -114,5 +115,10 @@ int cache_check_read_blocks(struct iscsi_cache_page *iet_page,
 	unsigned char valid, unsigned char read);
 int cache_rw_page(struct iscsi_cache_page *iet_page, int rw);
 
+/* cache_config.c */
+extern int machine_type;
+extern char echo_host[];
+extern char echo_peer[];
+extern int echo_port;
 
 #endif

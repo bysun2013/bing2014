@@ -18,6 +18,11 @@
 #include "cache.h"
 #include "cache_wb.h"
 
+static int ctr_major_cache;
+static char ctr_name_cache[] = "ietctl_cache";
+extern struct file_operations ctr_fops_cache;
+
+
 extern int cache_procfs_init(void);
 extern void cache_procfs_exit(void);
 
@@ -242,6 +247,9 @@ int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 	struct iscsi_cache_page *iscsi_page;
 
 	iscsi_page = find_page_from_radix(iscsi_cache, index);
+
+	if(!iscsi_page)
+		return 0;
 	
 	spin_lock(&lru_lock);
 	list_del_init(&iscsi_page->lru_list);
@@ -533,9 +541,11 @@ static int iscsi_page_init(void)
 	return  iscsi_page_cache ? 0 : -ENOMEM;
 }
 
-void* init_iscsi_cache(const char *path, const char *inet_addr, const char *inet_peer_addr, int port, bool owner)
+void* init_iscsi_cache(const char *path, int owner)
 {
 	struct iscsi_cache *iscsi_cache;
+	int vol_owner;
+	
 	iscsi_cache=kzalloc(sizeof(*iscsi_cache),GFP_KERNEL);
 	if(!iscsi_cache)
 		return NULL;
@@ -558,13 +568,25 @@ void* init_iscsi_cache(const char *path, const char *inet_addr, const char *inet
 	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
 	mutex_unlock(&iscsi_cache_list_lock);
 
-	if(!inet_addr){
-		cache_err("Error, inet addr is NULL.\n");
+	if(((machine_type == MA) && (owner == MA)) ||  \
+		((machine_type == MB) && (owner == MB)))
+	{
+		vol_owner = true;
 	}
-	memcpy(iscsi_cache->inet_addr, inet_addr, strlen(inet_addr));
-	memcpy(iscsi_cache->inet_peer_addr, inet_peer_addr, strlen(inet_peer_addr));
-	iscsi_cache->port = port;
-	iscsi_cache->owner = owner;
+	if(((machine_type == MA) && (owner == MB)) ||   \
+	       ((machine_type == MB) && (owner == MA)))
+		
+	{
+		vol_owner = false;
+	}
+	
+	cache_info("for this volume echo_host = %s  echo_peer = %s  echo_port = %d  owner = %s \n", \
+				echo_host, echo_peer, echo_port, (vol_owner ? "true" : "false"));
+
+	memcpy(iscsi_cache->inet_addr, echo_host, strlen(echo_host));
+	memcpy(iscsi_cache->inet_peer_addr, echo_peer, strlen(echo_peer));
+	iscsi_cache->port = echo_port;
+	iscsi_cache->owner = vol_owner;
 	iscsi_cache->conn = cache_conn_init(iscsi_cache);
 	
 	
@@ -606,6 +628,7 @@ static void iscsi_global_cache_exit(void)
 	cache_procfs_exit();
 
 	wb_thread_exit();
+	unregister_chrdev(ctr_major_cache, ctr_name_cache);
 	
 	//cache_conn_destroy();
 	
@@ -642,6 +665,11 @@ static int iscsi_global_cache_init(void)
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
 
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
+	if ((ctr_major_cache= register_chrdev(0, ctr_name_cache, &ctr_fops_cache)) < 0) {
+		cache_alert("failed to register the control device %d\n", ctr_major_cache);
+		err = ctr_major_cache;
+		goto error;
+	}
 	
 	if((err=iscsi_page_init())< 0)
 		goto error;

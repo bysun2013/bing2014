@@ -13,20 +13,6 @@
 #include "iscsi_dbg.h"
 #include "iotype.h"
 
-/* Change it when installed in different host. */
-#define CACHE_MASTER 1
-
-#if CACHE_MASTER
-static const char *echo_host="10.17.11.79";
-static const char *echo_peer="10.17.11.59";
-static bool owner = true;
-#else
-static const char *echo_host="10.17.11.59";
-static const char *echo_peer="10.17.11.79";
-static bool owner = false;
-#endif
-
-static const int echo_port=7799;
 
 struct iet_volume *volume_lookup(struct iscsi_target *target, u32 lun)
 {
@@ -45,6 +31,7 @@ enum {
 	opt_scsiid,
 	opt_scsisn,
 	opt_blk_size,
+	opt_dest,
 	opt_err,
 };
 
@@ -54,6 +41,7 @@ static match_table_t tokens = {
 	{opt_scsiid, "scsiid=%s"},
 	{opt_scsisn, "scsisn=%s"},
 	{opt_blk_size, "blocksize=%u"},
+	{opt_dest, "dest=%s"},
 	{opt_err, NULL},
 };
 
@@ -211,6 +199,19 @@ static int parse_volume_params(struct iet_volume *volume, char *params)
 			}
 			kfree(argp);
 			break;
+		case opt_dest:
+			argp = match_strdup(&args[0]);
+			if (!argp) {
+				err = -ENOMEM;
+				break;
+			}
+			if (!strcmp(argp, "MB"))
+				volume->machine_dest = MB;
+			else //if (!strcmp(argp, "MA"))
+				volume->machine_dest = MA;
+
+			kfree(argp);
+			break;
 		default:
 			break;
 		}
@@ -304,7 +305,7 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 	/* initialize iscsi cache */
 	bio_data = volume->private;
 	/* Here need to be set referring to userspace*/ 
-	volume->iscsi_cache = init_iscsi_cache(bio_data->path, echo_host, echo_peer, echo_port, owner); 
+	volume->iscsi_cache = init_iscsi_cache(bio_data->path, volume->machine_dest); 
 	if(!volume->iscsi_cache){
 		ret = -ENOMEM;
 		goto free_args;
@@ -549,8 +550,15 @@ static void iet_volume_info_show(struct seq_file *seq, struct iscsi_target *targ
 			volume->blk_cnt, 1 << volume->blk_shift);
 		if (volume->iotype->show)
 			volume->iotype->show(volume, seq);
-		else
-			seq_printf(seq, "\n");
+		//else
+		//	seq_printf(seq, "\n");
+
+		if (volume->machine_dest == MA)
+			seq_printf(seq, " machine_dest:MA\n");
+		else if (volume->machine_dest == MB)
+			seq_printf(seq, " machine_dest:MB\n");
+		else 
+			seq_printf(seq, " machine_dest:unknow\n");
 	}
 }
 

@@ -133,6 +133,10 @@ struct iet_event {
 #define MAX_NOP_TIMEOUT		90
 
 #define NETLINK_IET	21
+enum ip_m {
+	MA = 100,
+	MB,
+};
 
 #define GET_MODULE_INFO _IOW('i', 20, struct module_info)
 #define ADD_TARGET _IOWR('i', 21, struct target_info)

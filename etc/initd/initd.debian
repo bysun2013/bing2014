@@ -6,8 +6,10 @@
 
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 DAEMON=/usr/sbin/ietd
+DAEMON_CACHE=/usr/sbin/ietd_cache
 OPTIONS=""
 PIDFILE=/var/run/ietd.pid
+PIDFILE_CACHE=/var/run/ietd_cache.pid
 
 if [ -f /lib/init/vars.sh ]; then
 	. /lib/init/vars.sh
@@ -25,20 +27,28 @@ RETVAL=0
 
 ietd_start()
 {
-	log_daemon_msg "Starting iSCSI Target" "ietd"
-	modprobe -q crc32c
-	modprobe iscsi_trgt
+	echo "Starting iSCSI Target" "ietd"
+	#modprobe -q crc32c
+	#modprobe iscsi_trgt
 	start-stop-daemon --start --exec $DAEMON --pidfile $PIDFILE -- $OPTIONS
-	log_end_msg $?
+	if [ $? -eq 0 ]; then
+		echo "Done."
+	else
+		echo "Failed."	
+	fi	
 }
 
 ietd_stop()
 {
-	log_daemon_msg "Stopping iSCSI Target" "ietd"
+	echo "Stopping iSCSI Target" "ietd"
 	ietadm --op delete
 	start-stop-daemon --stop --exec $DAEMON --pidfile $PIDFILE
 	rm -f $PIDFILE
-	log_end_msg $?
+	if [ $? -eq 0 ]; then
+		echo "Done."
+	else
+		echo "Failed."	
+	fi	
 }
 
 ietd_status()
@@ -52,20 +62,64 @@ ietd_status()
 	fi
 }
 
+ietd_cache_start()
+{
+	echo "Starting iSCSI Target" "ietd_cache"
+	
+	start-stop-daemon --start --exec $DAEMON_CACHE --pidfile $PIDFILE_CACHE -- $OPTIONS
+	if [ $? -eq 0 ]; then
+		echo "Done."
+	else
+		echo "Failed."	
+	fi	
+}
+
+ietd_cache_stop()
+{
+	echo "Stopping iSCSI Target" "ietd_cache"
+	#ietadm_cache --op delete
+	start-stop-daemon --stop --exec $DAEMON_CACHE --pidfile $PIDFILE_CACHE
+	rm -f $PIDFILE_CACHE
+	if [ $? -eq 0 ]; then
+		echo "Done."
+	else
+		echo "Failed."	
+	fi	
+}
+
+ietd_cache_status()
+{
+	PID=`pidof ietd_cache`
+	if [ $PID ]; then
+		echo "iSCSI Target ietd_cache(pid $PID) is running..."
+	else
+		echo "iSCSI Target ietd_cache is stopped."
+		exit 1
+	fi
+}
+
 case "$1" in
   start)
+		  	modprobe -q crc32c
+				modprobe iscsi_trgt
+
+        ietd_cache_start
         ietd_start
         ;;
   stop)
         ietd_stop
+        ietd_cache_stop
         ;;
   restart)
-        ietd_stop
-	sleep 1
-	ietd_start
+  			ietd_stop
+        ietd_cache_stop
+				sleep 1
+				ietd_cache_start
+				ietd_start
         ;;
   status)
-	ietd_status
+				ietd_status
+				ietd_cache_status
         ;;
   *)
         echo $"Usage: $0 {start|stop|restart|status}"

@@ -202,13 +202,16 @@ ifeq ($(DOCDIR),)
 	DOCDIR := /usr/share/doc/iscsitarget
 endif
 
-all: usr kernel
+all: usr kernel  usr_cache
 
 usr: patch
 	$(MAKE) -C usr
 
 kernel: patch
 	$(MAKE) -C $(KSRC) SUBDIRS=$(shell pwd)/kernel modules
+
+usr_cache: patch
+	$(MAKE) -C usr_cache
 
 patch: $(UNSUPPORTED) integ_check $(PATCHES)
 
@@ -279,10 +282,12 @@ install-kernel: kernel/iscsi_trgt.ko kernel/cache/iscsi_caches.ko
 	@install -vD -m 644 kernel/cache/iscsi_caches.ko \
 		$(DESTDIR)$(INSTALL_MOD_PATH)$(KMOD)/iscsi/iscsi_caches.ko
 
-install-usr: usr/ietd usr/ietadm
+install-usr: usr/ietd usr/ietadm  usr_cache/ietd_cache usr_cache/ietadm_cache
 	@install -vD usr/ietd $(DESTDIR)/usr/sbin/ietd
 	@install -vD usr/ietadm $(DESTDIR)/usr/sbin/ietadm
-
+	@install -vD usr_cache/ietd_cache $(DESTDIR)/usr/sbin/ietd_cache
+	@install -vD usr_cache/ietadm_cache $(DESTDIR)/usr/sbin/ietadm_cache
+	
 install-etc: install-initd
 	@if [ ! -e $(DESTDIR)/etc/ietd.conf ]; then \
 		if [ ! -e $(DESTDIR)/etc/iet/ietd.conf ]; then \
@@ -302,7 +307,12 @@ install-etc: install-initd
 				$(DESTDIR)/etc/iet/targets.allow; \
 		fi \
 	fi
-
+	@if [ ! -e $(DESTDIR)/etc/cache.conf ]; then \
+		if [ ! -e $(DESTDIR)/etc/iet/cache.conf ]; then \
+			install -vD -m 640 etc/cache.conf \
+				$(DESTDIR)/etc/iet/cache.conf; \
+		fi \
+	fi
 install-initd:
 	@if [ -f /etc/debian_version ]; then \
 		install -vD -m 755 etc/initd/initd.debian \
@@ -360,7 +370,9 @@ uninstall-kernel:
 uninstall-usr:
 	@rm -f $(DESTDIR)/usr/sbin/ietd
 	@rm -f $(DESTDIR)/usr/sbin/ietadm
-
+	@rm -f $(DESTDIR)/usr/sbin/ietd_cache
+	@rm -f $(DESTDIR)/usr/sbin/ietadm_cache
+	
 uninstall-etc: uninstall-initd
 
 uninstall-initd:
@@ -386,7 +398,8 @@ uninstall-man:
 	done
 
 clean:
-	$(MAKE) -C usr clean
+	$(MAKE) -C usr clean 
+	$(MAKE) -C usr_cache clean 
 	$(MAKE) -C $(KSRC) SUBDIRS=$(shell pwd)/kernel clean
 
 distclean: unpatch clean
