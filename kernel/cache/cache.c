@@ -158,9 +158,13 @@ again:
 	if(iscsi_page==NULL){
 		cache_err("Cache is used up! Wait for write back...\n");
 		wake_up_process(iscsi_wb_forker);
-		
-		writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
-		
+		if(iscsi_cache->owner)
+			writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+		else{
+			set_current_state(TASK_INTERRUPTIBLE);
+			schedule_timeout(HZ/10);
+			__set_current_state(TASK_RUNNING);
+		}
 		goto again;
 	}
 	
@@ -249,21 +253,17 @@ int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 	iscsi_page = find_page_from_radix(iscsi_cache, index);
 
 	if(!iscsi_page)
-		return 0;
+		return 0;	
+
+	lock_page(iscsi_page->page);
 	
 	spin_lock(&lru_lock);
 	list_del_init(&iscsi_page->lru_list);
 	list_add(&iscsi_page->lru_list, &lru);
 	spin_unlock(&lru_lock);
 	
-	lock_page(iscsi_page->page);
-	
-	del_page_from_radix(iscsi_page);
-	iscsi_page->valid_bitmap = iscsi_page->dirty_bitmap = 0x0;
-	iscsi_page->iscsi_cache=NULL;
-	iscsi_page->flag = 0;
-	iscsi_page->index = 0;
-
+	iscsi_page->dirty_bitmap = 0x0;
+	iscsi_cache->dirty_pages--;
 	unlock_page(iscsi_page->page);
 
 	cache_dbg("Write out one page from cache, index = %ld\n", index);
@@ -484,15 +484,11 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 	u32 sector_num;
 	int err = 0;
 	char bitmap;
-
+	u32 real_size = size, real_ppos = ppos;
 	sector_t lba, alba, lba_off;
 	u64 page_index;
 	
 	BUG_ON(ppos%512 != 0);
-
-	if(iscsi_cache->owner){
-		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, size, ppos>>9);
-	}
 
 	/* Main processing loop */
 	while (size && tio_index < pg_cnt) {
@@ -529,6 +525,10 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 			tio_index++;
 	}
 
+	if(iscsi_cache->owner){
+		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9);
+	}
+	
 	return err;
 }
 
@@ -557,12 +557,15 @@ void* init_iscsi_cache(const char *path, int owner)
 	if(IS_ERR(iscsi_cache->bdev)){
 		iscsi_cache->bdev = NULL;
 		cache_err("Error occurs when get block device.\n");
+		kfree(iscsi_cache);
+		return NULL;
 	}
 	
 	spin_lock_init(&iscsi_cache->tree_lock);
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
 
 	setup_timer(&iscsi_cache->wakeup_timer, cache_wakeup_timer_fn, (unsigned long)iscsi_cache);
+	iscsi_cache->dirty_pages = iscsi_cache->total_pages = 0;
 	
 	mutex_lock(&iscsi_cache_list_lock);
 	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
@@ -580,8 +583,8 @@ void* init_iscsi_cache(const char *path, int owner)
 		vol_owner = false;
 	}
 	
-	cache_info("for this volume echo_host = %s  echo_peer = %s  echo_port = %d  owner = %s \n", \
-				echo_host, echo_peer, echo_port, (vol_owner ? "true" : "false"));
+	cache_info("for %s: echo_host = %s  echo_peer = %s  echo_port = %d  owner = %s \n", \
+				iscsi_cache->path, echo_host, echo_peer, echo_port, (vol_owner ? "true" : "false"));
 
 	memcpy(iscsi_cache->inet_addr, echo_host, strlen(echo_host));
 	memcpy(iscsi_cache->inet_peer_addr, echo_peer, strlen(echo_peer));
@@ -605,8 +608,8 @@ void del_iscsi_cache(void *iscsi_cachep)
 
 	if(iscsi_cache->task)
 		kthread_stop(iscsi_cache->task);
-	
-	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
+	/* FIXME Here Linux kernel panic, reason is unknown */
+	//writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
 
 	cache_conn_exit(iscsi_cache);
 

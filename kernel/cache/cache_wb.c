@@ -116,7 +116,7 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 {
 	int err = 0;
 	int done = 0;
-
+	int m;
 	/* used for cache sync, only support page size now */
 	pgoff_t wb_index[PVEC_SIZE];
 	
@@ -201,9 +201,19 @@ continue_unlock:
 		}
 		
 		/* submit page index of written pages to peer */
-		//if(iscsi_cache->owner)
-		//	cache_send_wrote(iscsi_cache->conn, wb_index, wrote_index);
-		
+		for(m=wrote_index; m<PVEC_SIZE; m++)
+			wb_index[m]= -1;
+		if(iscsi_cache->owner)
+			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);
+	/*	for(m=0; m<PVEC_SIZE; m++){
+			if(!pages[m])
+				continue;
+			lock_page(pages[m]->page);
+			pages[m]->dirty_bitmap=0x00;
+			unlock_page(pages[m]->page);
+			iscsi_cache->dirty_pages--;
+		}
+	*/
 		cond_resched();
 	}	
 
@@ -404,7 +414,7 @@ int cache_writeback_thread(void *data)
 	
 	wb->last_active = jiffies; 
 	
-	cache_dbg("WB Thread starts, id= %u", wb->id);
+	cache_dbg("WB Thread starts, path= %s", wb->path);
 	while (!kthread_should_stop()) {
 		/*
 		 * Remove own delayed wake-up timer, since we are already awake
@@ -425,7 +435,7 @@ int cache_writeback_thread(void *data)
 		
 		schedule_timeout(msecs_to_jiffies(cache_dirty_writeback_interval * 10));
 	}
-	cache_dbg("WB Thread ends, id= %u", wb->id);
+	cache_dbg("WB Thread ends, path= %s", wb->path);
 	
 	/* Flush any work that raced with us exiting */
 	writeback_single(wb, ISCSI_WB_SYNC_NONE,  ULONG_MAX);
@@ -484,7 +494,7 @@ static int cache_forker_thread(void * args)
 				break;			
 			__set_current_state(TASK_RUNNING);
 			task = kthread_create(cache_writeback_thread, iscsi_cache,
-					      "icache-flush-%d", iscsi_cache->id);
+					      "icache-%s", iscsi_cache->path);
 			if (IS_ERR(task)) {
 				writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 			} else {

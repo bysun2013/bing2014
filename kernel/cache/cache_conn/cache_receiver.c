@@ -234,8 +234,12 @@ int receive_data_wrote(struct cache_connection *connection, struct packet_info *
 	pages_index = (pgoff_t *)data;
 	for(i=0; i<count; i++){
 		pgoff_t  index = pages_index[i];
-		if(index < 0)
+		if(index == -1)
+			break;
+		if(index < 0){
+			cache_err("Error occurs, index is %ld.\n", index);
 			return -EINVAL;
+		}
 		cache_del_page(iscsi_cache, index);
 	}
 	

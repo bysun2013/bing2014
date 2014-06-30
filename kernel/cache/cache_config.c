@@ -182,8 +182,8 @@ static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		err = port_set(arg);
 		break;			
 	case CACHE_LUN_UPD:
-		err = lun_update(arg);	
-		break;		
+		err = lun_update(arg);
+		break;
 	default:
 		cache_alert("invalid ioctl cmd  %d   \n", cmd);
 		err = -EINVAL;
