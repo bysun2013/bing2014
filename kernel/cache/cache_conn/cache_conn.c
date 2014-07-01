@@ -400,6 +400,8 @@ static int conn_connect(struct cache_connection *connection)
 
 //	struct net_conf *nc;
 //	int timeout, h, ok;
+	int ping_timeo = 20;
+
 	int h=0, count=0;
 
 	struct accept_wait_data ad = {
@@ -516,13 +518,16 @@ randomize:
 
 	sock.socket->sk->sk_reuse = SK_CAN_REUSE;
 	msock.socket->sk->sk_reuse = SK_CAN_REUSE;
-/*
+
 	sock.socket->sk->sk_allocation = GFP_NOIO;
 	msock.socket->sk->sk_allocation = GFP_NOIO;
 
-	sock.socket->sk->sk_priority = TC_PRIO_INTERACTIVE_BULK;
-	msock.socket->sk->sk_priority = TC_PRIO_INTERACTIVE;
-*/
+//	sock.socket->sk->sk_priority = TC_PRIO_INTERACTIVE_BULK;
+//	msock.socket->sk->sk_priority = TC_PRIO_INTERACTIVE;
+	
+	sock.socket->sk->sk_sndtimeo =
+	sock.socket->sk->sk_rcvtimeo = ping_timeo*4*HZ/10;
+
 	/* NOT YET ...
 	 * sock.socket->sk->sk_sndtimeo = connection->net_conf->timeout*HZ/10;
 	 * sock.socket->sk->sk_rcvtimeo = MAX_SCHEDULE_TIMEOUT;
@@ -544,8 +549,8 @@ randomize:
 */
 	/* we don't want delays.
 	 * we use TCP_CORK where appropriate, though */
-//	cache_tcp_nodelay(sock.socket);
-//	cache_tcp_nodelay(msock.socket);
+	cache_tcp_nodelay(sock.socket);
+	cache_tcp_nodelay(msock.socket);
 
 	connection->data.socket = sock.socket;
 	connection->meta.socket = msock.socket;
@@ -585,6 +590,7 @@ int cache_receiver(struct cache_thread *thi)
 	cache_info("receiver (re)started\n");
 
 	do {
+		cache_dbg("Try to establish connection.\n");
 		h = conn_connect(connection);
 	} while (h == -1);
 
@@ -669,12 +675,17 @@ fail:
 
 void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
 {
-	struct cache_connection *cache_conn = iscsi_cache->conn;
+	struct cache_connection *cache_conn;
 /*
 	if (atomic_read(&cache_conn->current_epoch->epoch_size) !=  0)
 		cache_err("epoch_size:%d\n", atomic_read(&cache_conn->current_epoch->epoch_size));
 	kfree(cache_conn->current_epoch);
 */
+	if(!iscsi_cache)
+		return;
+	
+	if(!(cache_conn = iscsi_cache->conn))
+		return;
 	cache_thread_stop_nowait(&cache_conn->receiver);
 //	cache_thread_stop_nowait(&cache_conn->worker);
 	

@@ -126,6 +126,8 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 	unsigned long  nr_pages = wbc->nr_to_write;
 	int tag;
 
+	BUG_ON(!iscsi_cache->owner);
+		
 	if (wbc->mode == ISCSI_WB_SYNC_ALL)
 		tag = ISCSICACHE_TAG_TOWRITE;
 	else
@@ -158,6 +160,7 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
 continue_unlock:
 				unlock_page(iscsi_page->page);
+				pages[i]=	NULL;
 				continue;
 			}
 
@@ -181,14 +184,13 @@ continue_unlock:
 				mutex_unlock(&iscsi_page->write);
 				goto continue_unlock;
 			}
-			iscsi_page->dirty_bitmap=0x00;
-			mutex_unlock(&iscsi_page->write);
+
 			
 			iscsi_clear_page_tag(iscsi_page, tag);
 			if(wbc->mode == ISCSI_WB_SYNC_ALL)
 				iscsi_clear_page_tag(iscsi_page, ISCSICACHE_TAG_TOWRITE);
 			
-			iscsi_cache->dirty_pages--;
+			atomic_dec(&iscsi_cache->dirty_pages);
 			wbc->nr_to_write--;
 			if(wbc->nr_to_write < 1){
 				done=1;
@@ -203,17 +205,15 @@ continue_unlock:
 		/* submit page index of written pages to peer */
 		for(m=wrote_index; m<PVEC_SIZE; m++)
 			wb_index[m]= -1;
-		if(iscsi_cache->owner)
-			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);
-	/*	for(m=0; m<PVEC_SIZE; m++){
+		//if(iscsi_cache->owner)
+		//	cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);
+		for(m=0; m<nr_pages; m++){
 			if(!pages[m])
 				continue;
-			lock_page(pages[m]->page);
 			pages[m]->dirty_bitmap=0x00;
-			unlock_page(pages[m]->page);
-			iscsi_cache->dirty_pages--;
+			mutex_unlock(&pages[m]->write);
 		}
-	*/
+	
 		cond_resched();
 	}	
 
@@ -236,7 +236,6 @@ int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigne
 		return 0;
 	
 	err = cache_writeback_block_device(iscsi_cache, &wbc);
-	
 	return (pages_to_write - wbc.nr_to_write);
 }
 
@@ -256,7 +255,7 @@ int writeback_all(void){
 
 bool over_bground_thresh(struct iscsi_cache *iscsi_cache){
 	unsigned long ratio;
-	unsigned long dirty_pages = iscsi_cache->dirty_pages;
+	unsigned long dirty_pages = atomic_read(&iscsi_cache->dirty_pages);
 	if(dirty_pages < 256)
 		return false;
 	
@@ -360,7 +359,7 @@ static long cache_wb_old_data_flush(struct iscsi_cache *iscsi_cache)
 {
 	unsigned long expired;
 	struct cache_writeback_work work = {
-		.nr_pages	= iscsi_cache->dirty_pages,
+		.nr_pages	= atomic_read(&iscsi_cache->dirty_pages),
 		.sync_mode	= ISCSI_WB_SYNC_NONE,
 		.for_kupdate	= 1,
 		.range_cyclic	= 1,
@@ -436,7 +435,8 @@ int cache_writeback_thread(void *data)
 		schedule_timeout(msecs_to_jiffies(cache_dirty_writeback_interval * 10));
 	}
 	cache_dbg("WB Thread ends, path= %s", wb->path);
-	
+
+	del_timer(&wb->wakeup_timer);
 	/* Flush any work that raced with us exiting */
 	writeback_single(wb, ISCSI_WB_SYNC_NONE,  ULONG_MAX);
 	
@@ -471,8 +471,11 @@ static int cache_forker_thread(void * args)
 
 			if (!iscsi_cache->task && have_dirty_io) {
 				set_bit(CACHE_pending, &iscsi_cache->state);
-				action = FORK_THREAD;
-				break;
+				/* if this machine don't own the volume, ignore it */
+				if(iscsi_cache->owner){
+					action = FORK_THREAD;
+					break;
+				}
 			}
 
 			if (iscsi_cache->task && !have_dirty_io &&
@@ -488,10 +491,7 @@ static int cache_forker_thread(void * args)
 		mutex_unlock(&iscsi_cache_list_lock);
 
 		switch (action) {
-		case FORK_THREAD:
-			/* if this machine don't own the volume, ignore it */
-			if(!iscsi_cache->owner)
-				break;			
+		case FORK_THREAD:			
 			__set_current_state(TASK_RUNNING);
 			task = kthread_create(cache_writeback_thread, iscsi_cache,
 					      "icache-%s", iscsi_cache->path);

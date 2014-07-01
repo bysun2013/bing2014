@@ -145,7 +145,7 @@ again:
 			iscsi_page->valid_bitmap= 0x00;
 			iscsi_page->dirty_bitmap= 0x00;
 			if(iscsi_page->iscsi_cache){
-				iscsi_page->iscsi_cache->total_pages--;
+				atomic_dec(&iscsi_page->iscsi_cache->total_pages);
 				del_page_from_radix(iscsi_page);
 			}
 			spin_unlock(&lru_lock);
@@ -263,7 +263,7 @@ int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 	spin_unlock(&lru_lock);
 	
 	iscsi_page->dirty_bitmap = 0x0;
-	iscsi_cache->dirty_pages--;
+	atomic_dec(&iscsi_cache->dirty_pages);
 	unlock_page(iscsi_page->page);
 
 	cache_dbg("Write out one page from cache, index = %ld\n", index);
@@ -328,6 +328,8 @@ again:
 		if(unlikely(err)){
 			if(err==-EEXIST){
 				throw_to_lru_list(&iet_page->lru_list);
+				iet_page->iscsi_cache= NULL;
+				iet_page->index= -1;
 				unlock_page(iet_page->page);
 				iet_page=NULL;
 				goto again;
@@ -344,7 +346,7 @@ again:
 
 		unlock_page(iet_page->page);
 		
-		iscsi_cache->total_pages++;
+		atomic_inc(&iscsi_cache->total_pages);
 
 		add_to_lru_list(&iet_page->lru_list);
 		
@@ -374,6 +376,8 @@ again:
 		if(unlikely(err)){
 			if(err==-EEXIST){
 				throw_to_lru_list(&iet_page->lru_list);
+				iet_page->iscsi_cache= NULL;
+				iet_page->index= -1;
 				unlock_page(iet_page->page);
 				iet_page=NULL;
 				goto again;
@@ -390,15 +394,15 @@ again:
 		iet_page->dirtied_when = jiffies;
 		
 		iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
+
+		atomic_inc(&iscsi_cache->total_pages);
+		atomic_inc(&iscsi_cache->dirty_pages);
 		
 		unlock_page(iet_page->page);
-
-		iscsi_cache->total_pages++;
-		iscsi_cache->dirty_pages++;
 		
 		add_to_lru_list(&iet_page->lru_list);
 		
-		if(over_bground_thresh(iscsi_cache))
+		if(iscsi_cache->owner && over_bground_thresh(iscsi_cache))
 			wakeup_cache_flusher(iscsi_cache);
 		
 		cache_dbg("WRITE MISS\n");
@@ -410,8 +414,8 @@ again:
 		copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
 
 		iet_page->valid_bitmap |= bitmap;
-		if(iet_page->dirty_bitmap == 0){
-			iscsi_cache->dirty_pages++;
+		if(iet_page->dirty_bitmap == 0x00){
+			atomic_inc(&iscsi_cache->dirty_pages);
 			iet_page->dirtied_when = jiffies;
 		}
 		iet_page->dirty_bitmap |= bitmap;
@@ -526,7 +530,7 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 	}
 
 	if(iscsi_cache->owner){
-		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9);
+		//cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9);
 	}
 	
 	return err;
@@ -565,7 +569,8 @@ void* init_iscsi_cache(const char *path, int owner)
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
 
 	setup_timer(&iscsi_cache->wakeup_timer, cache_wakeup_timer_fn, (unsigned long)iscsi_cache);
-	iscsi_cache->dirty_pages = iscsi_cache->total_pages = 0;
+	atomic_set(&iscsi_cache->dirty_pages, 0);
+	atomic_set(&iscsi_cache->total_pages, 0);
 	
 	mutex_lock(&iscsi_cache_list_lock);
 	list_add_tail(&iscsi_cache->list, &iscsi_cache_list);
@@ -590,7 +595,7 @@ void* init_iscsi_cache(const char *path, int owner)
 	memcpy(iscsi_cache->inet_peer_addr, echo_peer, strlen(echo_peer));
 	iscsi_cache->port = echo_port;
 	iscsi_cache->owner = vol_owner;
-	iscsi_cache->conn = cache_conn_init(iscsi_cache);
+	//iscsi_cache->conn = cache_conn_init(iscsi_cache);
 	
 	
 	return (void *)iscsi_cache;
@@ -609,7 +614,7 @@ void del_iscsi_cache(void *iscsi_cachep)
 	if(iscsi_cache->task)
 		kthread_stop(iscsi_cache->task);
 	/* FIXME Here Linux kernel panic, reason is unknown */
-	//writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
 
 	cache_conn_exit(iscsi_cache);
 
@@ -693,7 +698,7 @@ static int iscsi_global_cache_init(void)
 		iscsi_page=kmem_cache_alloc(iscsi_page_cache, GFP_KERNEL);
 		
 		iscsi_page->iscsi_cache = NULL;
-		iscsi_page->index= 0; 
+		iscsi_page->index= -1; 
 		
 		iscsi_page->dirty_bitmap=iscsi_page->valid_bitmap=0x00;
 		

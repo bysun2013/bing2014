@@ -88,8 +88,8 @@ struct iscsi_cache{
 	unsigned long last_old_flush;	/* last old data flush */
 	unsigned long last_active;	/* last time wb thread was active */
 
-	unsigned long dirty_pages;	/* should be atomic */
-	unsigned long total_pages;
+	atomic_t dirty_pages;	/* should be atomic */
+	atomic_t total_pages;
 	
 	struct task_struct *task;	/* writeback thread */
 	struct timer_list wakeup_timer; /* used for delayed thread wakeup */
