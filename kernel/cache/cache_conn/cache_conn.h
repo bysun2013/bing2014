@@ -40,18 +40,11 @@ struct p_header80 {
 
 struct p_data {
 	u64	    sector;    /* 64 bits sector number */
-	u64	    block_id;  /* to identify the request in protocol B&C */
+	u64	    block_id;
 	u32	    seq_num;
 	u32	    dp_flags;
 } __packed;
 
-/*
- * commands which share a struct:
- *  p_block_ack:
- *   P_WRITE_ACK (proto C)
- *  p_block_req:
- *   P_DATA_REQUEST
- */
 struct p_block_ack {
 	u64	    sector;
 	u64	    block_id;
@@ -257,18 +250,6 @@ static inline void cache_thread_restart_nowait(struct cache_thread *thi)
 	_cache_thread_stop(thi, true, false);
 }
 
-struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cache);
-
-void *conn_prepare_command(struct cache_connection *conn, struct cache_socket *sock);
-int conn_send_command(struct cache_connection *tconn, struct cache_socket *sock,
-		      enum cache_packet cmd, unsigned int header_size,
-		      void *data, unsigned int size);
-
-int cache_send_all(struct cache_connection *connection, struct socket *sock, void *buffer,
-		  size_t size, unsigned msg_flags);
-int cache_send(struct cache_connection *connection, struct socket *sock,
-	      void *buf, size_t size, unsigned msg_flags);
-
 unsigned int cache_header_size(struct cache_connection *conn);
 
 int receive_first_packet(struct cache_connection *connection, struct socket *sock);
@@ -277,28 +258,17 @@ int send_first_packet(struct cache_connection *connection, struct cache_socket *
 
 void cached(struct cache_connection *connection);
 
-int receive_data(struct cache_connection *, struct packet_info *);
-
-int receive_data_reply(struct cache_connection *, struct packet_info *);
-
-int receive_data_request(struct cache_connection *, struct packet_info *);
-
-int got_block_ack(struct cache_connection *, struct packet_info *);
-
-struct cio *cio_alloc(int count);
-void cio_put(struct cio *cio);
-void cio_exit(void);
-int cio_init(void);
-
 int cache_send_dblock(struct cache_connection *connection, struct page **pages, 
 				int count, u32 size, sector_t sector);
 int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, int count);
 int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos);
 
-
-void cache_conn_destroy(struct iscsi_cache *iscsi_cache);
 struct cache_connection *cache_conn_init(struct iscsi_cache *iscsi_cache);
 int cache_conn_exit(struct iscsi_cache *iscsi_cache);
 
+struct cio *cio_alloc(int count);
+void cio_put(struct cio *cio);
+void cio_exit(void);
+int cio_init(void);
 
 #endif

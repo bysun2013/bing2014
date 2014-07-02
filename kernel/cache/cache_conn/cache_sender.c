@@ -18,7 +18,7 @@ unsigned int cache_header_size(struct cache_connection *conn)
 	return sizeof(struct p_header80);
 }
 
-void *conn_prepare_command(struct cache_connection *conn, struct cache_socket *sock)
+static void *conn_prepare_command(struct cache_connection *conn, struct cache_socket *sock)
 {
 	void *p;
 
@@ -49,7 +49,7 @@ static unsigned int prepare_header(struct cache_connection *conn,
 /*
  * you must have down()ed the appropriate [m]sock_mutex elsewhere!
  */
-int cache_send(struct cache_connection *connection, struct socket *sock,
+static int cache_send(struct cache_connection *connection, struct socket *sock,
 	      void *buf, size_t size, unsigned msg_flags)
 {
 	struct kvec iov;
@@ -129,7 +129,7 @@ int cache_send(struct cache_connection *connection, struct socket *sock,
  *
  * Returns 0 upon success and a negative error value otherwise.
  */
-int cache_send_all(struct cache_connection *connection, struct socket *sock, void *buffer,
+static int cache_send_all(struct cache_connection *connection, struct socket *sock, void *buffer,
 		  size_t size, unsigned msg_flags)
 {
 	int err;
@@ -171,7 +171,7 @@ static int __send_command(struct cache_connection *conn,
 	return err;
 }
 
-int conn_send_command(struct cache_connection *tconn, struct cache_socket *sock,
+static int conn_send_command(struct cache_connection *tconn, struct cache_socket *sock,
 		      enum cache_packet cmd, unsigned int header_size,
 		      void *data, unsigned int size)
 {

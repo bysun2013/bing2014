@@ -530,7 +530,7 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 	}
 
 	if(iscsi_cache->owner){
-		//cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9);
+		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9);
 	}
 	
 	return err;
@@ -595,7 +595,7 @@ void* init_iscsi_cache(const char *path, int owner)
 	memcpy(iscsi_cache->inet_peer_addr, echo_peer, strlen(echo_peer));
 	iscsi_cache->port = echo_port;
 	iscsi_cache->owner = vol_owner;
-	//iscsi_cache->conn = cache_conn_init(iscsi_cache);
+	iscsi_cache->conn = cache_conn_init(iscsi_cache);
 	
 	
 	return (void *)iscsi_cache;
@@ -637,8 +637,6 @@ static void iscsi_global_cache_exit(void)
 
 	wb_thread_exit();
 	unregister_chrdev(ctr_major_cache, ctr_name_cache);
-	
-	//cache_conn_destroy();
 	
 	list_for_each_safe(list, tmp, &lru){
 		iscsi_page = list_entry(list, struct iscsi_cache_page, lru_list);

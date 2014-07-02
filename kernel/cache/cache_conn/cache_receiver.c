@@ -57,22 +57,9 @@ static int cache_recv(struct cache_connection *connection, void *buf, size_t siz
 	if (rv < 0) {
 		if (rv == -ECONNRESET)
 			cache_info("sock was reset by peer\n");
-		else if (rv != -ERESTARTSYS)
+		else if (rv != -ERESTARTSYS && rv != -EAGAIN)
 			cache_err( "sock_recvmsg returned %d\n", rv);
 	} else if (rv == 0) {
-	/*
-		if (test_bit(DISCONNECT_SENT, &connection->flags)) {
-			long t;
-			rcu_read_lock();
-			t = rcu_dereference(connection->net_conf)->ping_timeo * HZ/10;
-			rcu_read_unlock();
-
-			t = wait_event_timeout(connection->ping_wait, connection->cstate < C_WF_REPORT_PARAMS, t);
-
-			if (t)
-				goto out;
-		}
-	*/
 		cache_info("sock was shut down by peer\n");
 	}
 	
@@ -97,7 +84,7 @@ static int cache_recv_all_warn(struct cache_connection *connection, void *buf, s
 	int err;
 
 	err = cache_recv_all(connection, buf, size);
-	if (err && !signal_pending(current))
+	if (err && err != -EAGAIN && !signal_pending(current))
 		cache_warn("short read (expected size %d)\n", (int)size);
 	return err;
 }
@@ -136,8 +123,7 @@ int receive_first_packet(struct cache_connection *connection, struct socket *soc
 }
 
 /* used from receive_Data */
-static struct cio *
-read_in_block(struct cache_connection *connection, sector_t sector,
+static struct cio* read_in_block(struct cache_connection *connection, sector_t sector,
 	      struct packet_info *pi)
 {
 	static struct cio * req;
@@ -179,7 +165,7 @@ read_in_block(struct cache_connection *connection, sector_t sector,
 	return req;
 }
 
-int receive_data(struct cache_connection * connection, struct packet_info * pi)
+static int receive_data(struct cache_connection * connection, struct packet_info * pi)
 {
 	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
 	struct cio * req;
@@ -202,12 +188,12 @@ int receive_data(struct cache_connection * connection, struct packet_info * pi)
 	return 0;
 };
 
-int receive_data_reply(struct cache_connection *connection, struct packet_info *pi){
+static int receive_data_reply(struct cache_connection *connection, struct packet_info *pi){
 	cache_dbg("receive data reply.\n");
 	return 0;
 };
 
-int receive_data_wrote(struct cache_connection *connection, struct packet_info *pi)
+static int receive_data_wrote(struct cache_connection *connection, struct packet_info *pi)
 {
 	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
 	struct p_block_wrote *p = pi->data;
@@ -235,7 +221,7 @@ int receive_data_wrote(struct cache_connection *connection, struct packet_info *
 	for(i=0; i<count; i++){
 		pgoff_t  index = pages_index[i];
 		if(index == -1)
-			break;
+			continue;
 		if(index < 0){
 			cache_err("Error occurs, index is %ld.\n", index);
 			return -EINVAL;
@@ -247,7 +233,7 @@ int receive_data_wrote(struct cache_connection *connection, struct packet_info *
 	return err;
 };
 
-int got_block_ack(struct cache_connection *connection, struct packet_info *pi){
+static int got_block_ack(struct cache_connection *connection, struct packet_info *pi){
 	cache_dbg("receive data ack.\n");
 	return 0;
 };
@@ -289,8 +275,13 @@ void cached(struct cache_connection *connection)
 	while (get_t_state(&connection->receiver) == RUNNING) {
 		struct data_cmd *cmd;
 
-		if (cache_recv_header(connection, &pi))
+		err = cache_recv_header(connection, &pi);
+		if(err < 0){
+			if (likely(err == -EAGAIN))
+				continue;
 			goto err_out;
+		}
+
 		
 		cmd = &cache_cmd_handler[pi.cmd];
 		if (unlikely(pi.cmd >= ARRAY_SIZE(cache_cmd_handler) || !cmd->fn)) {

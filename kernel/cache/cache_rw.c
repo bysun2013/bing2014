@@ -170,7 +170,7 @@ static int _cache_rw_page_blocks(struct iscsi_cache_page *iet_page, unsigned cha
 	int tmp=1;
 
 	/* it's more possible, so detect it first. */
-	if((bitmap & 0xff) == 0xff){
+	if(likely((bitmap & 0xff) == 0xff)){
 		err=cache_rw_page(iet_page, rw);
 		return err;
 	}

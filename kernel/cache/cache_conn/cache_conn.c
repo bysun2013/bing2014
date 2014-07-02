@@ -526,7 +526,7 @@ randomize:
 //	msock.socket->sk->sk_priority = TC_PRIO_INTERACTIVE;
 	
 	sock.socket->sk->sk_sndtimeo =
-	sock.socket->sk->sk_rcvtimeo = ping_timeo*4*HZ/10;
+	sock.socket->sk->sk_rcvtimeo = ping_timeo*HZ;
 
 	/* NOT YET ...
 	 * sock.socket->sk->sk_sndtimeo = connection->net_conf->timeout*HZ/10;
@@ -586,13 +586,13 @@ int cache_receiver(struct cache_thread *thi)
 {
 	struct cache_connection *connection = thi->connection;
 	int h;
-
+	int count = 10;
 	cache_info("receiver (re)started\n");
 
 	do {
 		cache_dbg("Try to establish connection.\n");
 		h = conn_connect(connection);
-	} while (h == -1);
+	} while (h == -1 && count --);
 
 	if (h == 0){
 		cache_dbg("Good, it works.\n");
@@ -605,7 +605,7 @@ int cache_receiver(struct cache_thread *thi)
 	return 0;
 }
 
-struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cache)
+static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cache)
 {
 	struct cache_connection *connection;
 	struct sockaddr_in my_addr, peer_addr;
@@ -654,7 +654,7 @@ struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cache)
 	peer_addr.sin_port=htons(iscsi_cache->port);
 	memcpy(&connection->peer_addr, &peer_addr, sizeof(peer_addr));
 
-	cache_thread_init(&connection->receiver, cache_receiver, "receiver");
+	cache_thread_init(&connection->receiver, cache_receiver, "cache_receiver");
 	connection->receiver.connection = connection;
 //	cache_thread_init(&connection->worker, cache_worker, "worker");
 //	connection->worker.connection = connection;
@@ -673,7 +673,7 @@ fail:
 }
 
 
-void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
+static void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
 {
 	struct cache_connection *cache_conn;
 /*

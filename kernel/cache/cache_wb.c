@@ -161,6 +161,7 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 continue_unlock:
 				unlock_page(iscsi_page->page);
 				pages[i]=	NULL;
+				wb_index[i]= -1;
 				continue;
 			}
 
@@ -205,8 +206,8 @@ continue_unlock:
 		/* submit page index of written pages to peer */
 		for(m=wrote_index; m<PVEC_SIZE; m++)
 			wb_index[m]= -1;
-		//if(iscsi_cache->owner)
-		//	cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);
+		if(iscsi_cache->owner && wrote_index)
+			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);
 		for(m=0; m<nr_pages; m++){
 			if(!pages[m])
 				continue;
