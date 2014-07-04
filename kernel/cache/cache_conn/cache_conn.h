@@ -192,9 +192,9 @@ struct cache_connection{
 	struct sockaddr_storage peer_addr;
 	int peer_addr_len;
 	
-	struct cache_thread receiver;
+	struct cache_thread receiver; /* used for receive data*/
 	struct cache_thread worker;
-	struct cache_thread asender;
+	struct cache_thread asender; /* used for receive ack and wrote index */
 
 	atomic_t packet_seq;
 	/* sender side */
@@ -257,6 +257,7 @@ int send_first_packet(struct cache_connection *connection, struct cache_socket *
 			     enum cache_packet cmd);
 
 void cached(struct cache_connection *connection);
+int cache_wb_receiver(struct cache_thread *cache_thread);
 
 int cache_send_dblock(struct cache_connection *connection, struct page **pages, 
 				int count, u32 size, sector_t sector);

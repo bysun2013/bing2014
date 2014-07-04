@@ -69,14 +69,7 @@ static int cache_send(struct cache_connection *connection, struct socket *sock,
 	msg.msg_control    = NULL;
 	msg.msg_controllen = 0;
 	msg.msg_flags      = msg_flags | MSG_NOSIGNAL;
-/*
-	if (sock == connection->data.socket) {
-		rcu_read_lock();
-		connection->ko_count = rcu_dereference(connection->net_conf)->ko_count;
-		rcu_read_unlock();
-		cache_update_congested(connection);
-	}
-*/
+
 	do {
 		/* STRANGE
 		 * tcp_sendmsg does _not_ use its size parameter at all ?
@@ -87,15 +80,11 @@ static int cache_send(struct cache_connection *connection, struct socket *sock,
  * do we need to block cache_SIG if sock == &meta.socket ??
  * otherwise wake_asender() might interrupt some send_*Ack !
  */
- 		int retry = 5;
+
 		rv = kernel_sendmsg(sock, &msg, &iov, 1, size);
 		if (rv == -EAGAIN) {
-/*			if (we_should_drop_the_connection(connection, sock))
-				break;
-			else*/
-			if(retry--)
-				continue;
-			break;
+			cache_warn("Send data fail, try again.\n");
+			continue;
 		}
 		if (rv == -EINTR) {
 			flush_signals(current);
@@ -216,12 +205,6 @@ static int _cache_send_page(struct cache_connection*conn, struct page *page,
 	int len = size;
 	int err = -EIO;
 
-	/* e.g. XFS meta- & log-data is in slab pages, which have a
-	 * page_count of 0 and/or have PageSlab() set.
-	 * we cannot use send_page for those, as that does get_page();
-	 * put_page(); and would cause either a VM_BUG directly, or
-	 * __page_cache_release a page that would actually still be referenced
-	 * by someone, leading to some obscure delayed Oops somewhere else. */
 	if ((page_count(page) < 1) || PageSlab(page))
 		return _cache_no_send_page(conn, page, offset, size, msg_flags);
 
@@ -234,10 +217,9 @@ static int _cache_send_page(struct cache_connection*conn, struct page *page,
 		sent = socket->ops->sendpage(socket, page, offset, len, msg_flags);
 		if (sent <= 0) {
 			if (sent == -EAGAIN) {
-				cache_warn("Error occur when send page, Try again.\n");
+				cache_warn("send page fail, try again.\n");
 				continue;
 			}
-			cache_warn("size=%d len=%d sent=%d\n", (int)size, len, sent);
 			if (sent < 0)
 				err = sent;
 			break;
@@ -278,10 +260,10 @@ static int _cache_send_zc_pages(struct cache_connection *conn, struct page **pag
 	int i;
 	/* hint all but last page with MSG_MORE */
 	for (i = 0; i < count; i++){
-		int err;
-
+		int err, write;
+		write = min_t(int, PAGE_SIZE, size);
 		err = _cache_send_page(conn, pages[i],
-					 0, PAGE_SIZE,
+					 0, write,
 					 i == count - 1 ? 0 : MSG_MORE);
 		if (err)
 			return err;
@@ -314,7 +296,7 @@ int cache_send_dblock(struct cache_connection *connection, struct page **pages,
 	
 	cache_dbg("finish sending cmd, begin to send data.\n");
 	if (!err) {
-		err = _cache_send_pages(connection, pages, count, size, sector);
+		err = _cache_send_zc_pages(connection, pages, count, size, sector);
 	}
 	cache_dbg("finish sending data.\n");
 	
@@ -331,7 +313,7 @@ int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, 
 	int err;
 	int size = sizeof(pgoff_t)*count;
 	
-	sock = &connection->data;
+	sock = &connection->meta;
 	socket = sock->socket;
 	
 	p = conn_prepare_command(connection, sock);

@@ -177,7 +177,7 @@ continue_unlock:
 					goto continue_unlock;
 			}
 			
-			cache_dbg("WRITEBACK one page. Index is %llu, dirty bitmap is %#x.\n", 
+			cache_alert("WRITEBACK one page. Index is %llu, dirty bitmap is %#x.\n", 
 				(unsigned long long)iscsi_page->index, iscsi_page->dirty_bitmap);
 
 			err = cache_write_page_blocks(iscsi_page);

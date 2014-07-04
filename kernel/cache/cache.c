@@ -251,10 +251,10 @@ int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 	struct iscsi_cache_page *iscsi_page;
 
 	iscsi_page = find_page_from_radix(iscsi_cache, index);
-
 	if(!iscsi_page)
-		return 0;	
-
+		return 0;
+	
+	cache_alert("Write out one page from cache, index = %ld\n", index);
 	lock_page(iscsi_page->page);
 	
 	spin_lock(&lru_lock);
@@ -266,7 +266,6 @@ int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 	atomic_dec(&iscsi_cache->dirty_pages);
 	unlock_page(iscsi_page->page);
 
-	cache_dbg("Write out one page from cache, index = %ld\n", index);
 	return 0;
 }
 

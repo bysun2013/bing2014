@@ -80,6 +80,13 @@ void cache_free_sock(struct cache_connection *connection)
 	}
 }
 
+static void cache_init_workqueue(struct cache_work_queue* wq)
+{
+	spin_lock_init(&wq->q_lock);
+	INIT_LIST_HEAD(&wq->q);
+	init_waitqueue_head(&wq->q_wait);
+}
+
 static void cache_thread_init(struct cache_thread *thi,
 			     int (*func) (struct cache_thread *), const char *name)
 {
@@ -89,13 +96,6 @@ static void cache_thread_init(struct cache_thread *thi,
 	thi->function = func;
 	thi->connection = NULL;
 	thi->name = name;
-}
-
-static void cache_init_workqueue(struct cache_work_queue* wq)
-{
-	spin_lock_init(&wq->q_lock);
-	INIT_LIST_HEAD(&wq->q);
-	init_waitqueue_head(&wq->q_wait);
 }
 
 static int cache_thread_setup(void *arg)
@@ -109,16 +109,6 @@ restart:
 
 	spin_lock_irqsave(&thi->t_lock, flags);
 
-	/* if the receiver has been "EXITING", the last thing it did
-	 * was set the conn state to "StandAlone",
-	 * if now a re-connect request comes in, conn state goes C_UNCONNECTED,
-	 * and receiver thread will be "started".
-	 * cache_thread_start needs to set "RESTARTING" in that case.
-	 * t_state check and assignment needs to be within the same spinlock,
-	 * so either thread_start sees EXITING, and can remap to RESTARTING,
-	 * or thread_start see NONE, and can proceed as normal.
-	 */
-
 	if (thi->t_state == RESTARTING) {
 		cache_info("Restarting %s thread\n", thi->name);
 		thi->t_state = RUNNING;
@@ -129,9 +119,10 @@ restart:
 	thi->task = NULL;
 	thi->t_state = NONE;
 	smp_mb();
-	//complete_all(&thi->stop);
+	complete_all(&thi->stop);
 	spin_unlock_irqrestore(&thi->t_lock, flags);
 
+	//module_put(THIS_MODULE);
 	cache_info("Terminating\n");
 
 	return retval;
@@ -161,12 +152,12 @@ int cache_thread_start(struct cache_thread *thi)
 		if (thi->connection)
 			kref_get(&thi->connection->kref);
 		
-
+*/
 		init_completion(&thi->stop);
 		thi->t_state = RUNNING;
 		spin_unlock_irqrestore(&thi->t_lock, flags);
-		flush_signals(current);  otherw. may get -ERESTARTNOINTR
-*/
+		flush_signals(current);  //otherw. may get -ERESTARTNOINTR
+
 		nt = kthread_create(cache_thread_setup, (void *) thi,
 				    "cache_%s", thi->name);
 
@@ -179,7 +170,7 @@ int cache_thread_start(struct cache_thread *thi)
 			//module_put(THIS_MODULE);
 			return false;
 		}
-		//spin_lock_irqsave(&thi->t_lock, flags);
+		spin_lock_irqsave(&thi->t_lock, flags);
 		thi->task = nt;
 		thi->t_state = RUNNING;
 		spin_unlock_irqrestore(&thi->t_lock, flags);
@@ -199,6 +190,38 @@ int cache_thread_start(struct cache_thread *thi)
 	return true;
 }
 
+void _cache_thread_stop(struct cache_thread *thi, int restart, int wait)
+{
+	unsigned long flags;
+
+	enum cache_thread_state ns = restart ? RESTARTING : EXITING;
+	cache_alert("begin to kill thread %s\n", thi->name);
+	/* may be called from state engine, holding the req lock irqsave */
+	spin_lock_irqsave(&thi->t_lock, flags);
+
+	if (thi->t_state == NONE) {
+		spin_unlock_irqrestore(&thi->t_lock, flags);
+		if (restart)
+			cache_thread_start(thi);
+		return;
+	}
+
+	if (thi->t_state != ns) {
+		if (thi->task == NULL) {
+			spin_unlock_irqrestore(&thi->t_lock, flags);
+			return;
+		}
+
+		thi->t_state = ns;
+		smp_mb();
+		init_completion(&thi->stop);
+	}
+	spin_unlock_irqrestore(&thi->t_lock, flags);
+
+	if (wait)
+		wait_for_completion(&thi->stop);
+	cache_alert("Thread %s exit.\n", thi->name);
+}
 
 static struct socket *cache_wait_for_connect(struct cache_connection *connection, struct accept_wait_data *ad)
 {
@@ -575,8 +598,8 @@ out_release_sockets:
 
 static void conn_disconnect(struct cache_connection *connection)
 {
-	if (connection->cstate == C_STANDALONE)
-		return;
+	//if (connection->cstate == C_STANDALONE)
+	//	return;
 
 	cache_free_sock(connection);
 	cache_alert("Connection closed\n");
@@ -593,9 +616,10 @@ int cache_receiver(struct cache_thread *thi)
 		cache_dbg("Try to establish connection.\n");
 		h = conn_connect(connection);
 	} while (h == -1 && count --);
-
+	
 	if (h == 0){
 		cache_dbg("Good, it works.\n");
+		cache_thread_start(&connection->asender);
 		cached(connection);
 	}
 	
@@ -633,6 +657,7 @@ static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cach
 	connection->cstate = C_STANDALONE;
 	mutex_init(&connection->cstate_mutex);
 	init_waitqueue_head(&connection->ping_wait);
+	kref_init(&connection->kref);
 
 	cache_init_workqueue(&connection->sender_work);
 	mutex_init(&connection->data.mutex);
@@ -654,13 +679,12 @@ static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cach
 	peer_addr.sin_port=htons(iscsi_cache->port);
 	memcpy(&connection->peer_addr, &peer_addr, sizeof(peer_addr));
 
-	cache_thread_init(&connection->receiver, cache_receiver, "cache_receiver");
+	cache_thread_init(&connection->receiver, cache_receiver, "dreceiver");
 	connection->receiver.connection = connection;
-//	cache_thread_init(&connection->worker, cache_worker, "worker");
-//	connection->worker.connection = connection;
+	cache_thread_init(&connection->asender, cache_wb_receiver, "wreceiver");
+	connection->asender.connection = connection;
 
 	cache_thread_start(&connection->receiver);
-//	cache_thread_start(&connection->worker);
 	
 	return connection;
 
@@ -687,45 +711,13 @@ static void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
 	if(!(cache_conn = iscsi_cache->conn))
 		return;
 	cache_thread_stop_nowait(&cache_conn->receiver);
-//	cache_thread_stop_nowait(&cache_conn->worker);
+	cache_thread_stop_nowait(&cache_conn->asender);
 	
 	conn_disconnect(cache_conn);
 	cache_free_socket(&cache_conn->meta);
 	cache_free_socket(&cache_conn->data);
 	kfree(cache_conn);
 	iscsi_cache->conn = NULL;
-}
-
-void _cache_thread_stop(struct cache_thread *thi, int restart, int wait)
-{
-	unsigned long flags;
-
-	enum cache_thread_state ns = restart ? RESTARTING : EXITING;
-
-	/* may be called from state engine, holding the req lock irqsave */
-	spin_lock_irqsave(&thi->t_lock, flags);
-
-	if (thi->t_state == NONE) {
-		spin_unlock_irqrestore(&thi->t_lock, flags);
-		if (restart)
-			cache_thread_start(thi);
-		return;
-	}
-
-	if (thi->t_state != ns) {
-		if (thi->task == NULL) {
-			spin_unlock_irqrestore(&thi->t_lock, flags);
-			return;
-		}
-
-		thi->t_state = ns;
-		smp_mb();
-		init_completion(&thi->stop);
-	}
-	spin_unlock_irqrestore(&thi->t_lock, flags);
-
-	if (wait)
-		wait_for_completion(&thi->stop);
 }
 
 struct cache_connection *cache_conn_init(struct iscsi_cache *iscsi_cache)

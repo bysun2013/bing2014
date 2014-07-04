@@ -53,7 +53,6 @@ static int cache_rw_segment(struct iscsi_cache_page *iet_page,
 	if(blocks==0)
 		return err;
 	
-	cache_dbg("submit blocks to device, start=%d, sizes=%d\n", start, blocks);
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
 	if (!tio_work){
 		err = -ENOMEM;

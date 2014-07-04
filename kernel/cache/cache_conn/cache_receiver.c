@@ -6,9 +6,9 @@
 
 #include "cache_conn.h"
 
-static int decode_header(struct cache_connection *tconn, void *header, struct packet_info *pi)
+static int decode_header(struct cache_connection *conn, void *header, struct packet_info *pi)
 {
-	unsigned int header_size = cache_header_size(tconn);
+	unsigned int header_size = cache_header_size(conn);
 
 	if (header_size == sizeof(struct p_header80) &&
 		   *(__be16 *)header == cpu_to_be16(CACHE_MAGIC)) {
@@ -48,11 +48,11 @@ static int cache_recv_short(struct socket *sock, void *buf, size_t size, int fla
 	return rv;
 }
 
-static int cache_recv(struct cache_connection *connection, void *buf, size_t size)
+static int cache_recv(struct cache_socket *cache_socket, void *buf, size_t size)
 {
 	int rv;
 
-	rv = cache_recv_short(connection->data.socket, buf, size, 0);
+	rv = cache_recv_short(cache_socket->socket, buf, size, 0);
 
 	if (rv < 0) {
 		if (rv == -ECONNRESET)
@@ -66,11 +66,11 @@ static int cache_recv(struct cache_connection *connection, void *buf, size_t siz
 	return rv;
 }
 
-static int cache_recv_all(struct cache_connection *connection, void *buf, size_t size)
+static int cache_recv_all(struct cache_socket *cache_socket, void *buf, size_t size)
 {
 	int err;
 
-	err = cache_recv(connection, buf, size);
+	err = cache_recv(cache_socket, buf, size);
 	if (err != size) {
 		if (err >= 0)
 			err = -EIO;
@@ -79,22 +79,24 @@ static int cache_recv_all(struct cache_connection *connection, void *buf, size_t
 	return err;
 }
 
-static int cache_recv_all_warn(struct cache_connection *connection, void *buf, size_t size)
+static int cache_recv_all_warn(struct cache_socket *cache_socket, void *buf, size_t size)
 {
 	int err;
 
-	err = cache_recv_all(connection, buf, size);
+	err = cache_recv_all(cache_socket, buf, size);
 	if (err && err != -EAGAIN && !signal_pending(current))
 		cache_warn("short read (expected size %d)\n", (int)size);
 	return err;
 }
 
-int cache_recv_header(struct cache_connection *connection, struct packet_info *pi)
+int cache_recv_header(struct cache_connection *connection, struct cache_socket *cache_socket, 
+	struct packet_info *pi)
 {
-	void *buffer = connection->data.rbuf;
+
+	void *buffer = cache_socket->rbuf;
 	int err;
 
-	err = cache_recv_all_warn(connection, buffer, cache_header_size(connection));
+	err = cache_recv_all_warn(cache_socket, buffer, cache_header_size(connection));
 	if (err)
 		return err;
 
@@ -122,7 +124,7 @@ int receive_first_packet(struct cache_connection *connection, struct socket *soc
 	return pi.cmd;
 }
 
-/* used from receive_Data */
+/* used from receive_Data, with data sock */
 static struct cio* read_in_block(struct cache_connection *connection, sector_t sector,
 	      struct packet_info *pi)
 {
@@ -152,7 +154,7 @@ static struct cio* read_in_block(struct cache_connection *connection, sector_t s
 		//WARN_ON(len%PAGE_SIZE != 0);
 		page = req->pvec[i];
 		data = kmap(page);
-		err = cache_recv_all_warn(connection, data, len);
+		err = cache_recv_all_warn(&connection->data, data, len);
 		kunmap(page);
 		if (err) {
 			cio_put(req);
@@ -183,6 +185,8 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 	cache_dbg("To write received data.\n");
 
 	iscsi_write_cache((void *)iscsi_cache, req->pvec, req->pg_cnt, req->size, req->offset);
+
+	cio_put(req);
 	
 	cache_dbg("write received data into cache.\n");
 	return 0;
@@ -193,6 +197,7 @@ static int receive_data_reply(struct cache_connection *connection, struct packet
 	return 0;
 };
 
+/* use msock to receive writeback index */
 static int receive_data_wrote(struct cache_connection *connection, struct packet_info *pi)
 {
 	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
@@ -205,18 +210,17 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 	int count = size/sizeof(pgoff_t);
 	pgoff_t *pages_index;
 	
-	cache_dbg("begin to receive wrote data.\n");
+	cache_alert("begin to receive wrote data.\n");
 	page = alloc_page(GFP_KERNEL);
 	
 	data = kmap(page);
-	err = cache_recv_all_warn(connection, data, size);
+	err = cache_recv_all_warn(&connection->meta, data, size);
 	kunmap(page);
 	if (err) {
 		cache_err("Error occurs when receive wrote data...\n");
 		return err;
 	}
 	
-	cache_dbg("To write out received pages index.\n");
 	pages_index = (pgoff_t *)data;
 	for(i=0; i<count; i++){
 		pgoff_t  index = pages_index[i];
@@ -228,8 +232,9 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 		}
 		cache_del_page(iscsi_cache, index);
 	}
-	
-	cache_dbg("delete wrote data from cache.\n");
+
+	__free_page(page);
+	cache_alert("delete wrote data from cache.\n");
 	return err;
 };
 
@@ -275,14 +280,13 @@ void cached(struct cache_connection *connection)
 	while (get_t_state(&connection->receiver) == RUNNING) {
 		struct data_cmd *cmd;
 
-		err = cache_recv_header(connection, &pi);
+		err = cache_recv_header(connection, &connection->data, &pi);
 		if(err < 0){
 			if (likely(err == -EAGAIN))
 				continue;
 			goto err_out;
 		}
-
-		
+		WARN_ON(pi.cmd != P_DATA);
 		cmd = &cache_cmd_handler[pi.cmd];
 		if (unlikely(pi.cmd >= ARRAY_SIZE(cache_cmd_handler) || !cmd->fn)) {
 			cache_err("Unexpected data packet %s (0x%04x)\n",
@@ -298,7 +302,7 @@ void cached(struct cache_connection *connection)
 		}
 cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 		if (shs) {
-			err = cache_recv_all_warn(connection, pi.data, shs);
+			err = cache_recv_all_warn(&connection->data, pi.data, shs);
 			if (err)
 				goto err_out;
 			pi.size -= shs;
@@ -317,6 +321,61 @@ cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 err_out:
 	cache_err("Error occurs when cached.\n");
 	return;
+}
+
+/* For now, it only deal with sync of writeback index */
+int cache_wb_receiver(struct cache_thread *cache_thread)
+{
+	struct cache_connection *connection = cache_thread->connection;
+	struct packet_info pi;
+	size_t shs; /* sub header size */
+	int err = 0;
+
+	while (get_t_state(&connection->receiver) == RUNNING) {
+		struct data_cmd *cmd;
+
+		err = cache_recv_header(connection, &connection->meta, &pi);
+		if(err < 0){
+			if (likely(err == -EAGAIN))
+				continue;
+			goto err_out;
+		}
+
+		WARN_ON(pi.cmd != P_DATA_WRITTEN);
+		cmd = &cache_cmd_handler[pi.cmd];
+		if (unlikely(pi.cmd >= ARRAY_SIZE(cache_cmd_handler) || !cmd->fn)) {
+			cache_err("Unexpected data packet %s (0x%04x)\n",
+				 cmdname(pi.cmd), pi.cmd);
+			goto err_out;
+		}
+
+		shs = cmd->pkt_size;
+		if (pi.size > shs && !cmd->expect_payload) {
+			cache_err("No payload expected %s l:%d\n",
+				 cmdname(pi.cmd), pi.size);
+			goto err_out;
+		}
+cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
+		if (shs) {
+			err = cache_recv_all_warn(&connection->meta, pi.data, shs);
+			if (err)
+				goto err_out;
+			pi.size -= shs;
+		}
+
+		err = cmd->fn(connection, &pi);
+		if (err) {
+			cache_err("error receiving %s, e: %d l: %d!\n",
+				 cmdname(pi.cmd), err, pi.size);
+			goto err_out;
+		}
+	}
+	
+	return err;
+	
+err_out:
+	cache_err("Error occurs when cached.\n");
+	return err;
 }
 
 

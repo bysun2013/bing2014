@@ -28,6 +28,8 @@ extern struct mutex iscsi_cache_list_lock;
 
 extern unsigned long iscsi_cache_total_pages;
 
+#define PVEC_SIZE		16
+
 /*
  * Bits in iscsi_cache.state
  */
