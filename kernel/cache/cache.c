@@ -34,6 +34,7 @@ extern char *iet_mem_virt;
 unsigned long iscsi_cache_total_pages;
 
 static struct kmem_cache *iscsi_page_cache;
+struct kmem_cache *cache_request_cache;
 
 /*LRU link all of pages and devices*/
 static struct list_head lru;
@@ -483,6 +484,7 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
+	struct cache_request * req;
 	u32 tio_index = 0;
 	u32 sector_num;
 	int err = 0;
@@ -492,6 +494,10 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 	u64 page_index;
 	
 	BUG_ON(ppos%512 != 0);
+
+	if(iscsi_cache->owner){
+		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);
+	}
 
 	/* Main processing loop */
 	while (size && tio_index < pg_cnt) {
@@ -528,9 +534,8 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 			tio_index++;
 	}
 
-	if(iscsi_cache->owner){
-		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9);
-	}
+	if(iscsi_cache->owner)
+		wait_for_completion(req->done);
 	
 	return err;
 }
@@ -542,6 +547,12 @@ static int iscsi_page_init(void)
 {
 	iscsi_page_cache = KMEM_CACHE(iscsi_cache_page, 0);
 	return  iscsi_page_cache ? 0 : -ENOMEM;
+}
+
+static int cache_request_init(void)
+{
+	cache_request_cache = KMEM_CACHE(cache_request, 0);
+	return  cache_request_cache ? 0 : -ENOMEM;
 }
 
 void* init_iscsi_cache(const char *path, int owner)
@@ -646,6 +657,9 @@ static void iscsi_global_cache_exit(void)
 	if(iscsi_page_cache)
 		kmem_cache_destroy(iscsi_page_cache);
 
+	if(cache_request_cache)
+		kmem_cache_destroy(cache_request_cache);
+
 	cio_exit();
 	
 	cache_info("Unload iSCSI Cache Module. All right \n");
@@ -678,7 +692,10 @@ static int iscsi_global_cache_init(void)
 	
 	if((err=iscsi_page_init())< 0)
 		goto error;
-
+	
+	if((err=cache_request_init())< 0)
+		goto error;
+	
 	if((err=cio_init())< 0)
 		goto error;
 

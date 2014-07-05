@@ -669,6 +669,10 @@ static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cach
 	connection->peer_addr_len = sizeof(peer_addr);
 	atomic_set(&connection->packet_seq, 0);
 	
+	spin_lock_init(&connection->request_list_lock);
+	atomic_set(&connection->nr_cmnds, 0);
+	INIT_LIST_HEAD(&connection->request_list);
+	
 	my_addr.sin_family=AF_INET;
 	my_addr.sin_addr.s_addr=inet_addr(iscsi_cache->inet_addr);
 	my_addr.sin_port=htons(iscsi_cache->port);
@@ -710,8 +714,10 @@ static void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
 	
 	if(!(cache_conn = iscsi_cache->conn))
 		return;
-	cache_thread_stop_nowait(&cache_conn->receiver);
+
+	/* FIXME thread crash when exit */
 	cache_thread_stop_nowait(&cache_conn->asender);
+	cache_thread_stop_nowait(&cache_conn->receiver);
 	
 	conn_disconnect(cache_conn);
 	cache_free_socket(&cache_conn->meta);

@@ -172,7 +172,7 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
 	struct cio * req;
 	struct p_data *p = pi->data;
-//	u32 peer_seq = be32_to_cpu(p->seq_num);
+	u32 peer_seq = be32_to_cpu(p->seq_num);
 	sector_t sector = be64_to_cpu(p->sector);
 
 	cache_dbg("begin to receive data.\n");
@@ -182,8 +182,10 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 		cache_err("Error occurs when receive data.\n");
 		return -EIO;
 	}
-	cache_dbg("To write received data.\n");
 
+	cache_send_data_ack(connection,peer_seq, sector);
+	
+	cache_dbg("To write received data.\n");
 	iscsi_write_cache((void *)iscsi_cache, req->pvec, req->pg_cnt, req->size, req->offset);
 
 	cio_put(req);
@@ -239,6 +241,19 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 };
 
 static int got_block_ack(struct cache_connection *connection, struct packet_info *pi){
+	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
+	struct cache_request * req;
+	struct p_block_ack *p = pi->data;
+	u32 seq_num = be32_to_cpu(p->seq_num);
+	sector_t sector = be64_to_cpu(p->sector);
+
+	req = get_ready_request(connection, seq_num);
+	if(!req)
+		return EOF;
+
+	complete(req->done);
+
+	kmem_cache_free(cache_request_cache, req);
 	cache_dbg("receive data ack.\n");
 	return 0;
 };

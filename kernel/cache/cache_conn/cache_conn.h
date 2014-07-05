@@ -86,6 +86,15 @@ struct cache_work {
 	int (*cb)(struct cache_work *);
 };
 
+struct cache_request{
+	u32	    seq_num;
+	struct list_head list;
+	struct completion done;
+
+	struct cache_connection *connection;
+	struct cache_socket *cache_socket;
+}
+
 struct accept_wait_data {
 	struct cache_connection *connection;
 	struct socket *s_listen;
@@ -205,6 +214,10 @@ struct cache_connection{
 	spinlock_t epoch_lock;
 	unsigned int epochs;
 	unsigned long last_received;
+
+	struct list_head request_list;
+	struct spinlock_t request_lock;
+	atomic_t nr_cmnds;
 };
 
 struct data_cmd {
@@ -262,6 +275,8 @@ int cache_wb_receiver(struct cache_thread *cache_thread);
 int cache_send_dblock(struct cache_connection *connection, struct page **pages, 
 				int count, u32 size, sector_t sector);
 int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, int count);
+int cache_send_data_ack(struct cache_connection *connection,  u32 seq_num, u64 sector);
+
 int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos);
 
 struct cache_connection *cache_conn_init(struct iscsi_cache *iscsi_cache);
