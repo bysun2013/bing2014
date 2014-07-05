@@ -23,10 +23,13 @@
 
 #define CACHE_VERSION "0.02"
 
+extern bool peer_is_good;
+
 extern struct list_head iscsi_cache_list;
 extern struct mutex iscsi_cache_list_lock;
 
 extern unsigned long iscsi_cache_total_pages;
+extern struct kmem_cache *cache_request_cache;
 
 #define PVEC_SIZE		16
 

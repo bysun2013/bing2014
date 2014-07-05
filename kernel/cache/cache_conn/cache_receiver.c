@@ -17,7 +17,7 @@ static int decode_header(struct cache_connection *conn, void *header, struct pac
 		pi->size = be32_to_cpu(h->length);
 		pi->vnr = 0;
 	} else {
-		cache_err("Wrong magic value 0x%08x in \n",
+		cache_err("Wrong magic value 0x%08x.\n",
 			 be16_to_cpu(*(__be16 *)header));
 		return -EINVAL;
 	}
@@ -147,11 +147,8 @@ static struct cio* read_in_block(struct cache_connection *connection, sector_t s
 	
 	ds = data_size;
 	
-//	WARN_ON(ds%PAGE_SIZE != 0);
-	
 	for(i=0;i<nr_pages; i++){
 		unsigned len = min_t(int, ds, PAGE_SIZE);
-		//WARN_ON(len%PAGE_SIZE != 0);
 		page = req->pvec[i];
 		data = kmap(page);
 		err = cache_recv_all_warn(&connection->data, data, len);
@@ -203,11 +200,11 @@ static int receive_data_reply(struct cache_connection *connection, struct packet
 static int receive_data_wrote(struct cache_connection *connection, struct packet_info *pi)
 {
 	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
-	struct p_block_wrote *p = pi->data;
+//	struct p_block_wrote *p = pi->data;
 	unsigned int size = pi->size;
 	unsigned long *data;
 	struct page *page;
-	u32 peer_seq = be32_to_cpu(p->seq_num);
+//	u32 peer_seq = be32_to_cpu(p->seq_num);
 	int err, i;
 	int count = size/sizeof(pgoff_t);
 	pgoff_t *pages_index;
@@ -220,6 +217,7 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 	kunmap(page);
 	if (err) {
 		cache_err("Error occurs when receive wrote data...\n");
+		__free_page(page);
 		return err;
 	}
 	
@@ -230,6 +228,7 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 			continue;
 		if(index < 0){
 			cache_err("Error occurs, index is %ld.\n", index);
+			__free_page(page);
 			return -EINVAL;
 		}
 		cache_del_page(iscsi_cache, index);
@@ -241,19 +240,17 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 };
 
 static int got_block_ack(struct cache_connection *connection, struct packet_info *pi){
-	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
 	struct cache_request * req;
 	struct p_block_ack *p = pi->data;
 	u32 seq_num = be32_to_cpu(p->seq_num);
-	sector_t sector = be64_to_cpu(p->sector);
+//	sector_t sector = be64_to_cpu(p->sector);
 
 	req = get_ready_request(connection, seq_num);
 	if(!req)
-		return EOF;
+		return 0;
 
-	complete(req->done);
+	complete_all(&req->done);
 
-	kmem_cache_free(cache_request_cache, req);
 	cache_dbg("receive data ack.\n");
 	return 0;
 };
@@ -286,7 +283,7 @@ static struct data_cmd cache_cmd_handler[] = {
 	[P_WRITE_ACK]	    = {0,  sizeof(struct p_block_ack), got_block_ack },
 };
 
-void cached(struct cache_connection *connection)
+void cache_socket_receive(struct cache_connection *connection)
 {
 	struct packet_info pi;
 	size_t shs; /* sub header size */
@@ -334,14 +331,13 @@ cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 	return;
 	
 err_out:
-	cache_err("Error occurs when cached.\n");
+	cache_err("Error occurs when receive on socket.\n");
 	return;
 }
 
 /* For now, it only deal with sync of writeback index */
-int cache_wb_receiver(struct cache_thread *cache_thread)
+int cache_msocket_receive(struct cache_connection *connection)
 {
-	struct cache_connection *connection = cache_thread->connection;
 	struct packet_info pi;
 	size_t shs; /* sub header size */
 	int err = 0;
@@ -356,7 +352,6 @@ int cache_wb_receiver(struct cache_thread *cache_thread)
 			goto err_out;
 		}
 
-		WARN_ON(pi.cmd != P_DATA_WRITTEN);
 		cmd = &cache_cmd_handler[pi.cmd];
 		if (unlikely(pi.cmd >= ARRAY_SIZE(cache_cmd_handler) || !cmd->fn)) {
 			cache_err("Unexpected data packet %s (0x%04x)\n",
@@ -389,7 +384,7 @@ cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 	return err;
 	
 err_out:
-	cache_err("Error occurs when cached.\n");
+	cache_err("Error occurs when receive on msocket.\n");
 	return err;
 }
 

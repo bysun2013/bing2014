@@ -17,6 +17,7 @@ static unsigned int inet_addr(const char* ip)
 	addr[3] = d;
 	return *(unsigned int *)addr;
 }
+
 static char *inet_ntoa(struct in_addr *in)
 {
 	char* str_ip = NULL;
@@ -62,21 +63,14 @@ static void cache_free_socket(struct cache_socket *socket)
 	free_page((unsigned long) socket->rbuf);
 }
 
-void cache_free_sock(struct cache_connection *connection)
+void cache_free_sock(struct cache_socket * cache_socket)
 {
-	if (connection->data.socket) {
-		mutex_lock(&connection->data.mutex);
-		kernel_sock_shutdown(connection->data.socket, SHUT_RDWR);
-		sock_close(connection->data.socket);
-		connection->data.socket = NULL;
-		mutex_unlock(&connection->data.mutex);
-	}
-	if (connection->meta.socket) {
-		mutex_lock(&connection->meta.mutex);
-		kernel_sock_shutdown(connection->meta.socket, SHUT_RDWR);
-		sock_close(connection->meta.socket);
-		connection->meta.socket = NULL;
-		mutex_unlock(&connection->meta.mutex);
+	if (cache_socket->socket) {
+		mutex_lock(&cache_socket->mutex);
+		kernel_sock_shutdown(cache_socket->socket, SHUT_RDWR);
+		sock_close(cache_socket->socket);
+		cache_socket->socket = NULL;
+		mutex_unlock(&cache_socket->mutex);
 	}
 }
 
@@ -598,10 +592,9 @@ out_release_sockets:
 
 static void conn_disconnect(struct cache_connection *connection)
 {
-	//if (connection->cstate == C_STANDALONE)
-	//	return;
-
-	cache_free_sock(connection);
+	cache_free_sock(&connection->data);
+	cache_free_sock(&connection->meta);
+	
 	cache_alert("Connection closed\n");
 }
 
@@ -620,15 +613,24 @@ int cache_receiver(struct cache_thread *thi)
 	if (h == 0){
 		cache_dbg("Good, it works.\n");
 		cache_thread_start(&connection->asender);
-		cached(connection);
+		cache_socket_receive(connection);
 	}
 	
-	conn_disconnect(connection);
+	cache_free_sock(&connection->data);
 	cache_info("receiver terminated\n");
 	
 	return 0;
 }
 
+int cache_mreceiver(struct cache_thread *thi)
+{
+	int err;
+	struct cache_connection *connection = thi->connection;
+	
+	err=cache_msocket_receive(connection);
+	
+	return err;
+}
 static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cache)
 {
 	struct cache_connection *connection;
@@ -669,7 +671,7 @@ static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cach
 	connection->peer_addr_len = sizeof(peer_addr);
 	atomic_set(&connection->packet_seq, 0);
 	
-	spin_lock_init(&connection->request_list_lock);
+	spin_lock_init(&connection->request_lock);
 	atomic_set(&connection->nr_cmnds, 0);
 	INIT_LIST_HEAD(&connection->request_list);
 	
@@ -685,7 +687,7 @@ static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cach
 
 	cache_thread_init(&connection->receiver, cache_receiver, "dreceiver");
 	connection->receiver.connection = connection;
-	cache_thread_init(&connection->asender, cache_wb_receiver, "wreceiver");
+	cache_thread_init(&connection->asender, cache_mreceiver, "wreceiver");
 	connection->asender.connection = connection;
 
 	cache_thread_start(&connection->receiver);
@@ -730,7 +732,7 @@ struct cache_connection *cache_conn_init(struct iscsi_cache *iscsi_cache)
 {
 	struct cache_connection * conn;
 	
-	cache_alert("Start connection between caches!\n");
+	cache_dbg("Start connection between caches!\n");
 	
 	conn = cache_conn_create(iscsi_cache);
 	
@@ -741,7 +743,7 @@ int cache_conn_exit(struct iscsi_cache *iscsi_cache)
 {
 	cache_conn_destroy(iscsi_cache);
 	
-	cache_alert("Destroy connection between caches!\n");
+	cache_dbg("Destroy connection between caches!\n");
 	return 0;
 }
 

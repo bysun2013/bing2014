@@ -31,15 +31,18 @@ struct cache_request * get_ready_request(struct cache_connection *conn, u32 seq_
 	list_for_each_entry_safe(req, tmp, &conn->request_list, list){
 		if (req->seq_num == seq_num) {
 			list_del_init(&req->list);
-			BUG_ON(!req->conn);
+			BUG_ON(req->connection != conn);
 			atomic_dec(&conn->nr_cmnds);
+			break;
 		}
 	}
-	spin_unlock(&conn->request_lock);
 	if(req->list.next == &conn->request_list){
 		cache_err("Error, right request can't be found.\n");
+		spin_unlock(&conn->request_lock);
 		return NULL;
 	}
+	spin_unlock(&conn->request_lock);
+
 	return req;
 }
 
@@ -55,3 +58,23 @@ void cache_request_enqueue(struct cache_request *req)
 	atomic_inc(&conn->nr_cmnds);
 	cache_dbg("enqueue one request.\n");
 }
+
+void cache_request_dequeue(struct cache_request *req)
+{
+	struct cache_connection * conn;
+	conn = req->connection;
+	
+	spin_lock(&conn->request_lock);
+	if(!req){
+		spin_unlock(&conn->request_lock);
+		return;
+	}
+	list_del_init(&req->list);
+	spin_unlock(&conn->request_lock);
+
+	atomic_dec(&conn->nr_cmnds);
+	cache_dbg("dequeue one request.\n");
+
+	kmem_cache_free(cache_request_cache, req);
+}
+

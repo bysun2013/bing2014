@@ -93,7 +93,7 @@ struct cache_request{
 
 	struct cache_connection *connection;
 	struct cache_socket *cache_socket;
-}
+};
 
 struct accept_wait_data {
 	struct cache_connection *connection;
@@ -216,7 +216,7 @@ struct cache_connection{
 	unsigned long last_received;
 
 	struct list_head request_list;
-	struct spinlock_t request_lock;
+	spinlock_t request_lock;
 	atomic_t nr_cmnds;
 };
 
@@ -269,11 +269,11 @@ int receive_first_packet(struct cache_connection *connection, struct socket *soc
 int send_first_packet(struct cache_connection *connection, struct cache_socket *sock,
 			     enum cache_packet cmd);
 
-void cached(struct cache_connection *connection);
-int cache_wb_receiver(struct cache_thread *cache_thread);
+void cache_socket_receive(struct cache_connection *connection);
+int cache_msocket_receive(struct cache_connection *connection);
 
 int cache_send_dblock(struct cache_connection *connection, struct page **pages, 
-				int count, u32 size, sector_t sector);
+				int count, u32 size, sector_t sector, struct cache_request ** req);
 int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, int count);
 int cache_send_data_ack(struct cache_connection *connection,  u32 seq_num, u64 sector);
 
@@ -286,5 +286,10 @@ struct cio *cio_alloc(int count);
 void cio_put(struct cio *cio);
 void cio_exit(void);
 int cio_init(void);
+
+void cache_request_enqueue(struct cache_request *req);
+struct cache_request * cache_request_alloc(struct cache_connection *conn, u32 seq_num);
+struct cache_request * get_ready_request(struct cache_connection *conn, u32 seq_num);
+void cache_request_dequeue(struct cache_request *req);
 
 #endif

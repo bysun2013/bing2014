@@ -18,6 +18,8 @@
 #include "cache.h"
 #include "cache_wb.h"
 
+bool peer_is_good = true;
+
 static int ctr_major_cache;
 static char ctr_name_cache[] = "ietctl_cache";
 extern struct file_operations ctr_fops_cache;
@@ -495,10 +497,6 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 	
 	BUG_ON(ppos%512 != 0);
 
-	if(iscsi_cache->owner){
-		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);
-	}
-
 	/* Main processing loop */
 	while (size && tio_index < pg_cnt) {
 			unsigned int current_bytes, bytes = PAGE_SIZE;
@@ -533,10 +531,20 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 			
 			tio_index++;
 	}
-
-	if(iscsi_cache->owner)
-		wait_for_completion(req->done);
-	
+again:
+	if(iscsi_cache->owner){
+		int try = 5;
+		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);
+		cache_dbg("wait for data ack.\n");
+		//if(wait_for_completion_timeout(&req->done, HZ*10) == 0 && --try){
+		//	cache_warn("timeout when wait for data ack.\n");
+		//	cache_request_dequeue(req);
+		//	goto again;
+		//}else
+		//	kmem_cache_free(cache_request_cache, req);
+		wait_for_completion(&req->done);
+		cache_dbg("ok, get data ack, go on!\n");
+	}
 	return err;
 }
 
