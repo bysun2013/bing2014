@@ -679,25 +679,24 @@ static void iscsi_global_cache_exit(void)
 static int iscsi_global_cache_init(void)
 {
 	int err = 0;
-	unsigned int i;
+	unsigned int i = 0;
 	phys_addr_t reserve_phys_addr;
-	char *tmp_addr;
-	unsigned int iscsi_page_size = sizeof(struct iscsi_cache_page);
+	char *iscsi_struct_addr, *iscsi_data_addr;
+	unsigned int iscsi_struct_size = sizeof(struct iscsi_cache_page);
 
 	BUG_ON(PAGE_SIZE > 4096);
-	
+	BUG_ON(iet_mem_size%PAGE_SIZE);
+	BUG_ON((long)iet_mem_virt%PAGE_SIZE);
+//	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
+
 	reserve_phys_addr=virt_to_phys(iet_mem_virt);
-	iscsi_cache_total_pages = (iet_mem_size)/PAGE_SIZE;
-	
-	tmp_addr = iet_mem_virt;
 
 	cache_info("iSCSI Cache Module  version %s \n", CACHE_VERSION);
 	cache_info("reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
 	
-	cache_dbg("The size of struct iscsi_cache_page is %d.\n", iscsi_page_size);
+	cache_dbg("The size of struct iscsi_cache_page is %d.\n", iscsi_struct_size);
 
-//	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
 	if ((ctr_major_cache= register_chrdev(0, ctr_name_cache, &ctr_fops_cache)) < 0) {
 		cache_alert("failed to register the control device %d\n", ctr_major_cache);
 		err = ctr_major_cache;
@@ -719,33 +718,39 @@ static int iscsi_global_cache_init(void)
 	INIT_LIST_HEAD(&iscsi_cache_list);
 	mutex_init(&iscsi_cache_list_lock);
 
-	for(i=0;i<iscsi_cache_total_pages;i++){
+	iscsi_struct_addr = iet_mem_virt;
+	iscsi_data_addr = iet_mem_virt + iet_mem_size -PAGE_SIZE;
+	BUG_ON((long)iscsi_data_addr%PAGE_SIZE);
+	
+	while(iscsi_data_addr >=iscsi_struct_addr+iscsi_struct_size){
 		struct iscsi_cache_page *iscsi_page;
 		struct page *page;
-		page = virt_to_page(tmp_addr);
-		iscsi_page=kmem_cache_alloc(iscsi_page_cache, GFP_KERNEL);
+		
+		page = virt_to_page(iscsi_data_addr);
+		iscsi_page=(struct iscsi_cache_page *)iscsi_struct_addr;
 		
 		iscsi_page->iscsi_cache = NULL;
 		iscsi_page->index= -1; 
-		
 		iscsi_page->dirty_bitmap=iscsi_page->valid_bitmap=0x00;
-		
 		iscsi_page->page=page;
 		spin_lock_init(&iscsi_page->page_lock);
 		iscsi_page->flag=0;
 		mutex_init(&iscsi_page->write);
 		list_add_tail(&iscsi_page->lru_list, &lru);
 		
-		tmp_addr = tmp_addr+ PAGE_SIZE;
+		iscsi_struct_addr += iscsi_struct_size;
+		iscsi_data_addr -= PAGE_SIZE;
+		i++;
 	}
+	
+	iscsi_cache_total_pages = i;
+	cache_info("The cache includes %ld pages.\n", iscsi_cache_total_pages);
 	
 	if((err=wb_thread_init()) < 0)
 		goto error;
 
 	if((err=cache_procfs_init()) < 0)
 		goto error;
-	
-	//cache_conn = cache_conn_create("cache_conn");
 
 	return err;
 error:
