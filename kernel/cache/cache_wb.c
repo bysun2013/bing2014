@@ -204,10 +204,10 @@ continue_unlock:
 		}
 		
 		/* submit page index of written pages to peer */
-		for(m=wrote_index; m<PVEC_SIZE && peer_is_good; m++)
+/*		for(m=wrote_index; m<PVEC_SIZE && peer_is_good; m++)
 			wb_index[m]= -1;
 		if(iscsi_cache->owner && wrote_index && peer_is_good)
-			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);
+			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);*/
 		for(m=0; m<nr_pages; m++){
 			if(!pages[m])
 				continue;
@@ -367,12 +367,6 @@ static long cache_wb_old_data_flush(struct iscsi_cache *iscsi_cache)
 		.reason		= ISCSI_WB_REASON_PERIODIC,
 	};
 
-	/*
-	 * When set to zero, disable periodic writeback
-	 */
-	if (!cache_dirty_writeback_interval)
-		return 0;
-
 	expired = iscsi_cache->last_old_flush +
 			msecs_to_jiffies(cache_dirty_writeback_interval * 10);
 	if (time_before(jiffies, expired))
@@ -380,7 +374,8 @@ static long cache_wb_old_data_flush(struct iscsi_cache *iscsi_cache)
 
 	iscsi_cache->last_old_flush = jiffies;
 	cache_wakeup_thread_delayed(iscsi_cache);
-
+	cache_dbg("wakes up periodically and does kupdated style flushing.\n");
+	
 	return cache_writeback(iscsi_cache, &work);
 }
 
@@ -413,6 +408,7 @@ int cache_writeback_thread(void *data)
 	set_user_nice(current, 0);
 	
 	wb->last_active = jiffies; 
+	wb->last_old_flush = jiffies; 
 	
 	cache_dbg("WB Thread starts, path= %s", wb->path);
 	while (!kthread_should_stop()) {

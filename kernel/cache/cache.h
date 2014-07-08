@@ -52,9 +52,6 @@ struct iscsi_cache_page{
 	dev_t	device_id;
 	pgoff_t	index;
 
-	/* block is 512 Byte, and page is 4KB */
-	unsigned char valid_bitmap;
-	unsigned char dirty_bitmap;
 	unsigned long dirtied_when;	/* jiffies of first dirtying */
 	
 	struct page *page;
@@ -64,7 +61,10 @@ struct iscsi_cache_page{
 	struct mutex write;
 
 	struct list_head lru_list;
-};
+	/* block is 512 Byte, and page is 4KB */
+	unsigned char valid_bitmap;
+	unsigned char dirty_bitmap;
+}__attribute__((aligned(sizeof(u64))));
 
 #define PATH_LEN 16
 

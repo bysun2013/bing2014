@@ -536,7 +536,7 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 			
 			tio_index++;
 	}
-	
+	/*
 	if(iscsi_cache->owner && peer_is_good){
 		int try = 5;
 		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);
@@ -547,7 +547,7 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 		}else
 			kmem_cache_free(cache_request_cache, req);
 		cache_dbg("ok, get data ack, go on!\n");
-	}
+	}*/
 	return err;
 }
 
@@ -616,7 +616,7 @@ void* init_iscsi_cache(const char *path, int owner)
 	memcpy(iscsi_cache->inet_peer_addr, echo_peer, strlen(echo_peer));
 	iscsi_cache->port = echo_port;
 	iscsi_cache->owner = vol_owner;
-	iscsi_cache->conn = cache_conn_init(iscsi_cache);
+	//iscsi_cache->conn = cache_conn_init(iscsi_cache);
 	
 	
 	return (void *)iscsi_cache;
@@ -637,7 +637,7 @@ void del_iscsi_cache(void *iscsi_cachep)
 	/* FIXME Here Linux kernel panic, reason is unknown */
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
 
-	cache_conn_exit(iscsi_cache);
+	//cache_conn_exit(iscsi_cache);
 
 	blkdev_put(iscsi_cache->bdev, (FMODE_READ |FMODE_WRITE));
 	cache_dbg("Good, release block device.\n");
@@ -682,6 +682,7 @@ static int iscsi_global_cache_init(void)
 	unsigned int i;
 	phys_addr_t reserve_phys_addr;
 	char *tmp_addr;
+	unsigned int iscsi_page_size = sizeof(struct iscsi_cache_page);
 
 	BUG_ON(PAGE_SIZE > 4096);
 	
@@ -693,6 +694,8 @@ static int iscsi_global_cache_init(void)
 	cache_info("iSCSI Cache Module  version %s \n", CACHE_VERSION);
 	cache_info("reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
+	
+	cache_dbg("The size of struct iscsi_cache_page is %d.\n", iscsi_page_size);
 
 //	BUG_ON(reserve_phys_addr != iscsi_mem_goal);
 	if ((ctr_major_cache= register_chrdev(0, ctr_name_cache, &ctr_fops_cache)) < 0) {
