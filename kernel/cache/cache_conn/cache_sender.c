@@ -205,9 +205,6 @@ static int _cache_send_page(struct cache_connection*conn, struct page *page,
 	int len = size;
 	int err = -EIO;
 
-	if ((page_count(page) < 1) || PageSlab(page))
-		return _cache_no_send_page(conn, page, offset, size, msg_flags);
-
 	msg_flags |= MSG_NOSIGNAL;
 
 	set_fs(KERNEL_DS);
@@ -267,6 +264,7 @@ static int _cache_send_zc_pages(struct cache_connection *conn, struct page **pag
 					 i == count - 1 ? 0 : MSG_MORE);
 		if (err)
 			return err;
+		size-=write;
 	}
 	return 0;
 }

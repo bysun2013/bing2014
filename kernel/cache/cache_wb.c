@@ -204,7 +204,7 @@ continue_unlock:
 		}
 		
 		/* submit page index of written pages to peer */
-		for(m=wrote_index; m<PVEC_SIZE; m++)
+		for(m=wrote_index; m<PVEC_SIZE && peer_is_good; m++)
 			wb_index[m]= -1;
 		if(iscsi_cache->owner && wrote_index && peer_is_good)
 			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);

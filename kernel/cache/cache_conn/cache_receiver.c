@@ -179,8 +179,6 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 		cache_err("Error occurs when receive data.\n");
 		return -EIO;
 	}
-
-	cache_send_data_ack(connection,peer_seq, sector);
 	
 	cache_dbg("To write received data.\n");
 	iscsi_write_cache((void *)iscsi_cache, req->pvec, req->pg_cnt, req->size, req->offset);
@@ -188,6 +186,8 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 	cio_put(req);
 	
 	cache_dbg("write received data into cache.\n");
+
+	cache_send_data_ack(connection,peer_seq, sector);
 	return 0;
 };
 
@@ -200,41 +200,34 @@ static int receive_data_reply(struct cache_connection *connection, struct packet
 static int receive_data_wrote(struct cache_connection *connection, struct packet_info *pi)
 {
 	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
-//	struct p_block_wrote *p = pi->data;
+	struct p_block_wrote *p = pi->data;
 	unsigned int size = pi->size;
-	unsigned long *data;
-	struct page *page;
-//	u32 peer_seq = be32_to_cpu(p->seq_num);
-	int err, i;
 	int count = size/sizeof(pgoff_t);
+	pgoff_t data[PVEC_SIZE];
 	pgoff_t *pages_index;
+	u32 peer_seq = be32_to_cpu(p->seq_num);
+	int err, i;
 	
 	cache_alert("begin to receive wrote data.\n");
-	page = alloc_page(GFP_KERNEL);
 	
-	data = kmap(page);
 	err = cache_recv_all_warn(&connection->meta, data, size);
-	kunmap(page);
 	if (err) {
 		cache_err("Error occurs when receive wrote data...\n");
-		__free_page(page);
 		return err;
 	}
 	
-	pages_index = (pgoff_t *)data;
+	pages_index = data;
 	for(i=0; i<count; i++){
 		pgoff_t  index = pages_index[i];
 		if(index == -1)
 			continue;
 		if(index < 0){
 			cache_err("Error occurs, index is %ld.\n", index);
-			__free_page(page);
 			return -EINVAL;
 		}
 		cache_del_page(iscsi_cache, index);
 	}
 
-	__free_page(page);
 	cache_alert("delete wrote data from cache.\n");
 	return err;
 };

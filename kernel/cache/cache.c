@@ -60,12 +60,11 @@ static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache
 		} else {
 			page->iscsi_cache = NULL;
 			spin_unlock_irq(&iscsi_cache->tree_lock);
-			cache_err("Error occurs when add page to cache!\n");
+			cache_dbg("something is wrong when add page to cache, it's perhaps not fault.\n");
 		}
 		radix_tree_preload_end();
 	}else
 		cache_err("Error occurs when preload cache!\n");
-
 	return error;
 }
 
@@ -130,14 +129,16 @@ static void update_lru_list(struct list_head *list)
 	spin_unlock(&lru_lock);
 }
 
-/* the free page is isolated, NOT list to LRU */
+/** the free page is isolated, NOT list to LRU
+*	Whether IRQ should be shutdown or not ???
+**/
 static struct iscsi_cache_page* cache_get_free_page(struct iscsi_cache * iscsi_cache)
 {
 	struct list_head *list, *tmp;
 	struct iscsi_cache_page *iscsi_page=NULL;
-	
+	unsigned long flag;
 again:
-	spin_lock(&lru_lock);
+	spin_lock_irqsave(&lru_lock, flag);
 	list_for_each_safe(list, tmp, &lru){
 		iscsi_page=list_entry(list, struct iscsi_cache_page, lru_list);
 		BUG_ON(iscsi_page == NULL);
@@ -151,12 +152,12 @@ again:
 				atomic_dec(&iscsi_page->iscsi_cache->total_pages);
 				del_page_from_radix(iscsi_page);
 			}
-			spin_unlock(&lru_lock);
+			spin_unlock_irqrestore(&lru_lock, flag);
 			return iscsi_page;
 		}
 		iscsi_page=NULL;
 	}
-	spin_unlock(&lru_lock);
+	spin_unlock_irqrestore(&lru_lock, flag);
 
 	if(iscsi_page==NULL){
 		cache_err("Cache is used up! Wait for write back...\n");
@@ -252,20 +253,24 @@ static struct iscsi_cache_page* cache_find_get_page(struct iscsi_cache *iscsi_ca
 int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 {
 	struct iscsi_cache_page *iscsi_page;
-
+again:
 	iscsi_page = find_page_from_radix(iscsi_cache, index);
-	if(!iscsi_page)
+	if(!iscsi_page){
+		cache_warn("Write out one page, not found, index = %ld\n", index);
 		return 0;
-	
-	cache_alert("Write out one page from cache, index = %ld\n", index);
+	}
+	cache_alert("Write out one page, index = %ld\n", index);
 	lock_page(iscsi_page->page);
-	
+	if(iscsi_page->index !=index ||iscsi_page->iscsi_cache !=iscsi_cache){
+		unlock_page(iscsi_page->page);
+		goto again;
+	}
 	spin_lock(&lru_lock);
 	list_del_init(&iscsi_page->lru_list);
 	list_add(&iscsi_page->lru_list, &lru);
 	spin_unlock(&lru_lock);
 	
-	iscsi_page->dirty_bitmap = 0x0;
+	iscsi_page->dirty_bitmap = 0x00;
 	atomic_dec(&iscsi_cache->dirty_pages);
 	unlock_page(iscsi_page->page);
 
@@ -531,18 +536,16 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 			
 			tio_index++;
 	}
-again:
-	if(iscsi_cache->owner){
+	
+	if(iscsi_cache->owner && peer_is_good){
 		int try = 5;
 		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);
 		cache_dbg("wait for data ack.\n");
-		//if(wait_for_completion_timeout(&req->done, HZ*10) == 0 && --try){
-		//	cache_warn("timeout when wait for data ack.\n");
-		//	cache_request_dequeue(req);
-		//	goto again;
-		//}else
-		//	kmem_cache_free(cache_request_cache, req);
-		wait_for_completion(&req->done);
+		if(wait_for_completion_timeout(&req->done, HZ*10) == 0){
+			cache_warn("timeout when wait for data ack.\n");
+			cache_request_dequeue(req);
+		}else
+			kmem_cache_free(cache_request_cache, req);
 		cache_dbg("ok, get data ack, go on!\n");
 	}
 	return err;
