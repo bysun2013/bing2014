@@ -36,7 +36,7 @@ struct cache_request * get_ready_request(struct cache_connection *conn, u32 seq_
 			break;
 		}
 	}
-	if(req->list.next == &conn->request_list){
+	if(&req->list == &conn->request_list){
 		cache_err("Error, right request can't be found.\n");
 		spin_unlock(&conn->request_lock);
 		return NULL;

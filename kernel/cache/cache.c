@@ -40,7 +40,7 @@ struct kmem_cache *cache_request_cache;
 
 /*LRU link all of pages and devices*/
 static struct list_head lru;
-static spinlock_t		lru_lock;
+static spinlock_t lru_lock;
 
 /* list all of volume, which use cache. */
 struct list_head iscsi_cache_list;
@@ -58,7 +58,6 @@ static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache
 		if (likely(!error)) {
 			spin_unlock_irq(&iscsi_cache->tree_lock);
 		} else {
-			page->iscsi_cache = NULL;
 			spin_unlock_irq(&iscsi_cache->tree_lock);
 			cache_dbg("something is wrong when add page to cache, it's perhaps not fault.\n");
 		}
@@ -74,7 +73,6 @@ static void del_page_from_radix(struct iscsi_cache_page *page)
 	
 	spin_lock_irq(&iscsi_cache->tree_lock);
 	radix_tree_delete(&iscsi_cache->page_tree, page->index);
-	page->iscsi_cache = NULL;
 	spin_unlock_irq(&iscsi_cache->tree_lock);
 }
 
@@ -84,7 +82,9 @@ static struct iscsi_cache_page *find_page_from_radix(struct iscsi_cache *iscsi_c
 	
 	struct iscsi_cache_page * iscsi_page;
 	void **pagep;
-
+	
+	//cond_resched();
+	
 	rcu_read_lock();
 repeat:
 	iscsi_page = NULL;
@@ -129,37 +129,33 @@ static void update_lru_list(struct list_head *list)
 	spin_unlock(&lru_lock);
 }
 
-/** the free page is isolated, NOT list to LRU
-*	Whether IRQ should be shutdown or not ???
-**/
 static struct iscsi_cache_page* cache_get_free_page(struct iscsi_cache * iscsi_cache)
 {
 	struct list_head *list, *tmp;
 	struct iscsi_cache_page *iscsi_page=NULL;
-	unsigned long flag;
 again:
-	spin_lock_irqsave(&lru_lock, flag);
+	spin_lock(&lru_lock);
 	list_for_each_safe(list, tmp, &lru){
 		iscsi_page=list_entry(list, struct iscsi_cache_page, lru_list);
-		BUG_ON(iscsi_page == NULL);
+		if(!trylock_page(iscsi_page->page))
+			continue;
 		if((iscsi_page->dirty_bitmap & 0xff) == 0){
-			if(PageLocked(iscsi_page->page))
-				continue;
 			list_del_init(list);
-			iscsi_page->valid_bitmap= 0x00;
-			iscsi_page->dirty_bitmap= 0x00;
+			spin_unlock(&lru_lock);
+			iscsi_page->valid_bitmap = 0x00;
 			if(iscsi_page->iscsi_cache){
 				atomic_dec(&iscsi_page->iscsi_cache->total_pages);
 				del_page_from_radix(iscsi_page);
+				iscsi_page->iscsi_cache = NULL;
 			}
-			spin_unlock_irqrestore(&lru_lock, flag);
+			cache_dbg("success get free page.\n");
 			return iscsi_page;
 		}
-		iscsi_page=NULL;
+		unlock_page(iscsi_page->page);
 	}
-	spin_unlock_irqrestore(&lru_lock, flag);
+	spin_unlock(&lru_lock);
 
-	if(iscsi_page==NULL){
+	if(list == &lru){
 		cache_err("Cache is used up! Wait for write back...\n");
 		wake_up_process(iscsi_wb_forker);
 		if(iscsi_cache->owner)
@@ -172,8 +168,9 @@ again:
 		goto again;
 	}
 	
-	return iscsi_page;
+	return NULL;
 }
+
 
 static void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page, 
 	char bitmap, unsigned int skip_blk, unsigned int bytes)
@@ -306,6 +303,13 @@ again:
 	if(iet_page){	/* Read Hit */
 		lock_page(iet_page->page);
 		
+		if(iet_page->iscsi_cache !=iscsi_cache || iet_page->index != page_index){
+			cache_dbg("read page have been changed.\n");
+			unlock_page(iet_page->page);
+			goto again;
+		}
+		cache_dbg("READ HIT, page num = %ld\n", page_index);
+		
 		if((iet_page->valid_bitmap & bitmap) != bitmap){
 			cache_dbg("Valid bitmap is not agreed to bitmap to read.\n");
 			
@@ -315,50 +319,51 @@ again:
 				unlock_page(iet_page->page);
 				return err;
 			}
-			iet_page->valid_bitmap = iet_page->valid_bitmap & bitmap;
+			iet_page->valid_bitmap = iet_page->valid_bitmap | bitmap;
 		}
 		
 		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
 
-		unlock_page(iet_page->page);
-		
 		update_lru_list(&iet_page->lru_list);
-		cache_dbg("READ HIT\n");	
+		cache_dbg("READ HIT, release LRU lock, page num = %ld\n", page_index);
+		unlock_page(iet_page->page);
 	}else{	/* Read Miss, no page */
+		cache_dbg("READ MISS, no page, page num is %d\n", page_index);
 		iet_page=cache_get_free_page(iscsi_cache);
+		BUG_ON(!iet_page);
 		
-		lock_page(iet_page->page);
+		//lock_page(iet_page->page);
 		iet_page->iscsi_cache=iscsi_cache;
 		iet_page->index=page_index;
-		
+		cache_dbg("begin to add page to radix tree. page num = %d.\n", page_index);
 		err=cache_add_page(iscsi_cache, iet_page);
 		if(unlikely(err)){
 			if(err==-EEXIST){
-				throw_to_lru_list(&iet_page->lru_list);
+				cache_dbg("This page exists, try again!\n");
 				iet_page->iscsi_cache= NULL;
 				iet_page->index= -1;
+				throw_to_lru_list(&iet_page->lru_list);
 				unlock_page(iet_page->page);
-				iet_page=NULL;
 				goto again;
 			}
+			throw_to_lru_list(&iet_page->lru_list);
 			cache_err("Error occurs when read, but reason is not clear.\n");
 			unlock_page(iet_page->page);
 			return err;
 		}
+		cache_dbg("Begin to read device data, page num = %d.\n", page_index);
 		cache_rw_page(iet_page, READ);
 		
 		copy_cache_to_tio(iet_page, page,  bitmap, skip_blk, current_bytes);
 		
 		iet_page->valid_bitmap =0xff;
-
+		
+		add_to_lru_list(&iet_page->lru_list);
+		cache_dbg("READ MISS, release LRU lock, page num = %ld\n", page_index);
 		unlock_page(iet_page->page);
 		
 		atomic_inc(&iscsi_cache->total_pages);
-
-		add_to_lru_list(&iet_page->lru_list);
-		
-		cache_dbg("READ MISS, no page\n");
-		}
+	}
 	return err;
 }
 
@@ -374,21 +379,23 @@ again:
 
 	if(iet_page == NULL){	/* Write Miss */
 		iet_page=cache_get_free_page(iscsi_cache);
+		BUG_ON(!iet_page);
 		
-		lock_page(iet_page->page);
+		//lock_page(iet_page->page);
 		iet_page->iscsi_cache=iscsi_cache;
 		iet_page->index=page_index;
 
 		err=cache_add_page(iscsi_cache, iet_page);
 		if(unlikely(err)){
 			if(err==-EEXIST){
-				throw_to_lru_list(&iet_page->lru_list);
 				iet_page->iscsi_cache= NULL;
 				iet_page->index= -1;
+				throw_to_lru_list(&iet_page->lru_list);
 				unlock_page(iet_page->page);
 				iet_page=NULL;
 				goto again;
 			}
+			throw_to_lru_list(&iet_page->lru_list);
 			cache_err("Error occurs when write, but reason is not clear.\n");
 			unlock_page(iet_page->page);
 			return err;
@@ -404,10 +411,9 @@ again:
 
 		atomic_inc(&iscsi_cache->total_pages);
 		atomic_inc(&iscsi_cache->dirty_pages);
-		
-		unlock_page(iet_page->page);
-		
+
 		add_to_lru_list(&iet_page->lru_list);
+		unlock_page(iet_page->page);
 		
 		if(iscsi_cache->owner && over_bground_thresh(iscsi_cache))
 			wakeup_cache_flusher(iscsi_cache);
@@ -416,7 +422,11 @@ again:
 	}else{		/* Write Hit */
 
 		lock_page(iet_page->page);
-		
+		if(iet_page->iscsi_cache !=iscsi_cache || iet_page->index != page_index){
+			cache_dbg("write page have been changed.\n");
+			unlock_page(iet_page->page);
+			goto again;
+		}
 		mutex_lock(&iet_page->write);
 		copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
 
@@ -429,10 +439,9 @@ again:
 		iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
 		
 		mutex_unlock(&iet_page->write);
-		
-		unlock_page(iet_page->page);
-		
+
 		update_lru_list(&iet_page->lru_list);
+		unlock_page(iet_page->page);
 		cache_dbg("WRITE HIT\n");
 	}
 	return err;
@@ -465,7 +474,7 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 				alba=page_index<<3;
 				lba_off=lba-alba;
 				
-				cache_dbg("READ ppos=%lld, LBA=%llu, page num=%lu\n", 
+				cache_dbg("READ ppos=%lld, LBA=%lu, page num=%lu\n", 
 					ppos, lba, (unsigned long)page_index);
 				
 				current_bytes=PAGE_SIZE-(lba_off<<9);
@@ -516,7 +525,7 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 				alba=page_index<<3;
 				lba_off=lba-alba;
 				
-				cache_dbg("WRITE ppos=%lld, LBA=%llu, page num=%lu\n", 
+				cache_dbg("WRITE ppos=%lld, LBA=%lu, page num=%lu\n", 
 					ppos, lba, (unsigned long)page_index);
 				
 				current_bytes=PAGE_SIZE-(lba_off<<9);
