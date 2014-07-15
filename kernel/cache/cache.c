@@ -35,7 +35,6 @@ extern char *iet_mem_virt;
 
 unsigned long iscsi_cache_total_pages;
 
-static struct kmem_cache *iscsi_page_cache;
 struct kmem_cache *cache_request_cache;
 
 /*LRU link all of pages and devices*/
@@ -55,15 +54,16 @@ static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache
 	if (error == 0) {
 		spin_lock_irq(&iscsi_cache->tree_lock);
 		error = radix_tree_insert(&iscsi_cache->page_tree, page->index, page);
-		if (likely(!error)) {
-			spin_unlock_irq(&iscsi_cache->tree_lock);
-		} else {
-			spin_unlock_irq(&iscsi_cache->tree_lock);
+		spin_unlock_irq(&iscsi_cache->tree_lock);
+		if (unlikely(error)) {
 			cache_dbg("something is wrong when add page to cache, it's perhaps not fault.\n");
 		}
 		radix_tree_preload_end();
+
+		synchronize_rcu();
 	}else
 		cache_err("Error occurs when preload cache!\n");
+	
 	return error;
 }
 
@@ -73,6 +73,7 @@ static void del_page_from_radix(struct iscsi_cache_page *page)
 	
 	spin_lock_irq(&iscsi_cache->tree_lock);
 	radix_tree_delete(&iscsi_cache->page_tree, page->index);
+	page->iscsi_cache = NULL;
 	spin_unlock_irq(&iscsi_cache->tree_lock);
 
 	synchronize_rcu();
@@ -84,8 +85,6 @@ static struct iscsi_cache_page *find_page_from_radix(struct iscsi_cache *iscsi_c
 	
 	struct iscsi_cache_page * iscsi_page;
 	void **pagep;
-	
-	cond_resched();
 	
 	rcu_read_lock();
 repeat:
@@ -105,6 +104,8 @@ repeat:
 	}
 out:
 	rcu_read_unlock();
+	
+	cond_resched();
 
 	return iscsi_page;
 
@@ -148,7 +149,6 @@ again:
 			if(iscsi_page->iscsi_cache){
 				atomic_dec(&iscsi_page->iscsi_cache->total_pages);
 				del_page_from_radix(iscsi_page);
-				iscsi_page->iscsi_cache = NULL;
 			}
 			return iscsi_page;
 		}
@@ -247,8 +247,8 @@ static struct iscsi_cache_page* cache_find_get_page(struct iscsi_cache *iscsi_ca
 	return iscsi_page;
 }
 
-/* Lock strategy is not good */
-int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
+/* Lock strategy is not good, used to sync dirty pages. */
+int cache_clean_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 {
 	struct iscsi_cache_page *iscsi_page;
 again:
@@ -263,13 +263,10 @@ again:
 		unlock_page(iscsi_page->page);
 		goto again;
 	}
-	spin_lock(&lru_lock);
-	list_del_init(&iscsi_page->lru_list);
-	list_add(&iscsi_page->lru_list, &lru);
-	spin_unlock(&lru_lock);
 	
 	iscsi_page->dirty_bitmap = 0x00;
 	atomic_dec(&iscsi_cache->dirty_pages);
+	
 	unlock_page(iscsi_page->page);
 
 	return 0;
@@ -340,8 +337,8 @@ again:
 				cache_dbg("This page exists, try again!\n");
 				iet_page->iscsi_cache= NULL;
 				iet_page->index= -1;
-				throw_to_lru_list(&iet_page->lru_list);
 				unlock_page(iet_page->page);
+				throw_to_lru_list(&iet_page->lru_list);
 				goto again;
 			}
 			throw_to_lru_list(&iet_page->lru_list);
@@ -385,9 +382,8 @@ again:
 			if(err==-EEXIST){
 				iet_page->iscsi_cache= NULL;
 				iet_page->index= -1;
-				throw_to_lru_list(&iet_page->lru_list);
 				unlock_page(iet_page->page);
-				iet_page=NULL;
+				throw_to_lru_list(&iet_page->lru_list);
 				goto again;
 			}
 			throw_to_lru_list(&iet_page->lru_list);
@@ -585,7 +581,7 @@ void* init_iscsi_cache(const char *path, int owner)
 	}
 	
 	spin_lock_init(&iscsi_cache->tree_lock);
-	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_KERNEL);
+	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_ATOMIC);
 
 	setup_timer(&iscsi_cache->wakeup_timer, cache_wakeup_timer_fn, (unsigned long)iscsi_cache);
 	atomic_set(&iscsi_cache->dirty_pages, 0);
@@ -656,15 +652,6 @@ static void iscsi_global_cache_exit(void)
 
 	wb_thread_exit();
 	unregister_chrdev(ctr_major_cache, ctr_name_cache);
-	
-	list_for_each_safe(list, tmp, &lru){
-		iscsi_page = list_entry(list, struct iscsi_cache_page, lru_list);
-		list_del_init(list);
-		kmem_cache_free(iscsi_page_cache, iscsi_page);
-	}
-	
-	if(iscsi_page_cache)
-		kmem_cache_destroy(iscsi_page_cache);
 
 	if(cache_request_cache)
 		kmem_cache_destroy(cache_request_cache);

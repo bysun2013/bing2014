@@ -104,6 +104,7 @@ case "$1" in
 				modprobe iscsi_trgt
 
         ietd_cache_start
+        sleep 1
         ietd_start
         ;;
   stop)

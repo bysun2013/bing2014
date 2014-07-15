@@ -11,7 +11,7 @@ struct task_struct *iscsi_wb_forker;
 /*
  * Start background writeback (via writeback threads) at this percentage
  */
-unsigned long cache_dirty_background_ratio = 10;
+unsigned long cache_dirty_background_ratio = 5;
 /*
  * The interval between `kupdate'-style writebacks
  */
@@ -30,6 +30,8 @@ void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
 		radix_tree_tag_set(&iscsi_cache->page_tree,
 				iscsi_page->index, tag);
 		spin_unlock_irq(&iscsi_cache->tree_lock);
+
+		synchronize_rcu();
 	}
 }
 
@@ -42,6 +44,8 @@ void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
 		radix_tree_tag_clear(&iscsi_cache->page_tree,
 				iscsi_page->index, tag);
 		spin_unlock_irq(&iscsi_cache->tree_lock);
+		
+		synchronize_rcu();
 	}
 }
 
@@ -58,7 +62,9 @@ static void iscsi_tag_pages_for_writeback(struct iscsi_cache *iscsi_cache,
 				ISCSICACHE_TAG_DIRTY, ISCSICACHE_TAG_TOWRITE);
 		spin_unlock_irq(&iscsi_cache->tree_lock);
 		WARN_ON_ONCE(tagged > WRITEBACK_TAG_BATCH);
-		cond_resched();
+
+		synchronize_rcu();
+		//cond_resched();
 		/* We check 'start' to handle wrapping when end == ~0UL */
 	} while (tagged >= WRITEBACK_TAG_BATCH && start);
 }
@@ -105,11 +111,27 @@ repeat:
 	if (unlikely(!ret && nr_found))
 		goto restart;
 	rcu_read_unlock();
-
+	
+	cond_resched();
+	
 	if (ret)
 		*index = pages[ret - 1]->index + 1;
-
+	
 	return ret;
+}
+static void iscsi_delete_page(struct iscsi_cache_page *iscsi_page)
+{
+	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
+	
+	if (iscsi_cache) {	/* Race with truncate? */
+		spin_lock_irq(&iscsi_cache->tree_lock);
+		radix_tree_delete(&iscsi_cache->page_tree,
+				iscsi_page->index);
+		iscsi_page->iscsi_cache = NULL;
+		spin_unlock_irq(&iscsi_cache->tree_lock);
+		
+		synchronize_rcu();
+	}
 }
 
 int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_writeback_control *wbc)
@@ -188,8 +210,12 @@ continue_unlock:
 
 			
 			iscsi_clear_page_tag(iscsi_page, tag);
-			if(wbc->mode == ISCSI_WB_SYNC_ALL)
+			if(wbc->mode == ISCSI_WB_SYNC_ALL){
 				iscsi_clear_page_tag(iscsi_page, ISCSICACHE_TAG_TOWRITE);
+				iscsi_delete_page(iscsi_page);
+			}
+			
+			wb_index[wrote_index++]= iscsi_page->index;
 			
 			atomic_dec(&iscsi_cache->dirty_pages);
 			wbc->nr_to_write--;
@@ -199,8 +225,6 @@ continue_unlock:
 				break;
 			}
 			unlock_page(iscsi_page->page);
-			
-			wb_index[wrote_index++]= iscsi_page->index;
 		}
 		
 		/* submit page index of written pages to peer */
@@ -257,7 +281,7 @@ int writeback_all(void){
 bool over_bground_thresh(struct iscsi_cache *iscsi_cache){
 	unsigned long ratio;
 	unsigned long dirty_pages = atomic_read(&iscsi_cache->dirty_pages);
-	if(dirty_pages < 256)
+	if(dirty_pages < 64)
 		return false;
 	
 	ratio = dirty_pages * 100/iscsi_cache_total_pages;
@@ -435,7 +459,7 @@ int cache_writeback_thread(void *data)
 
 	del_timer(&wb->wakeup_timer);
 	/* Flush any work that raced with us exiting */
-	writeback_single(wb, ISCSI_WB_SYNC_NONE,  ULONG_MAX);
+	writeback_single(wb, ISCSI_WB_SYNC_ALL,  ULONG_MAX);
 	
 	return 0;
 }

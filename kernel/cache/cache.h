@@ -32,6 +32,8 @@ extern unsigned long iscsi_cache_total_pages;
 extern struct kmem_cache *cache_request_cache;
 
 #define PVEC_SIZE		16
+#define ADDR_LEN 		16
+#define PATH_LEN 		32
 
 /*
  * Bits in iscsi_cache.state
@@ -66,16 +68,14 @@ struct iscsi_cache_page{
 	unsigned char dirty_bitmap;
 }__attribute__((aligned(sizeof(u64))));
 
-#define PATH_LEN 16
-
 struct iscsi_cache{
 	u32 id;
 	char path[PATH_LEN];
 
 	/* Inter-connection of Cache */
 	bool owner;
-	char inet_addr[PATH_LEN];
-	char inet_peer_addr[PATH_LEN];
+	char inet_addr[ADDR_LEN];
+	char inet_peer_addr[ADDR_LEN];
 	int port;
 	
 	struct block_device *bdev;
@@ -112,7 +112,7 @@ struct cio {
        atomic_t count; /* ref count */
 };
 
-int cache_del_page(struct iscsi_cache * iscsi_cache, pgoff_t index);
+int cache_clean_page(struct iscsi_cache * iscsi_cache, pgoff_t index);
 
 /* cache_rw.c */
 int cache_write_page_blocks(struct iscsi_cache_page *iet_page);

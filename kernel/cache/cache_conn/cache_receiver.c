@@ -225,7 +225,7 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 			cache_err("Error occurs, index is %ld.\n", index);
 			return -EINVAL;
 		}
-		cache_del_page(iscsi_cache, index);
+		cache_clean_page(iscsi_cache, index);
 	}
 
 	cache_alert("delete wrote data from cache.\n");
