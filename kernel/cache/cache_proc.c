@@ -9,20 +9,43 @@
 
 #include "cache.h"
 
-typedef void (cache_show_info_t)(struct seq_file *seq);
+typedef void (cache_show_info_t)(struct seq_file *seq, void *p);
 
 struct proc_entries {
 	const char *name;
 	struct file_operations *fops;
 };
 
+extern struct list_head lru;
+extern spinlock_t  lru_lock;
 static void *cache_seq_start(struct seq_file *m, loff_t *pos)
 {
+	struct iscsi_cache_page *iscsi_page;
+	unsigned long pages_dirty = 0, pages_locked = 0, pages_dirty_locked = 0;
 	int err;
 
 	err = mutex_lock_interruptible(&iscsi_cache_list_lock);
 	if (err < 0)
 		return ERR_PTR(err);
+
+	spin_lock(&lru_lock);
+	list_for_each_entry(iscsi_page, &lru, lru_list){
+		if(iscsi_page->dirty_bitmap){
+			pages_dirty++;
+			if(PageLocked(iscsi_page->page))
+				pages_dirty_locked++;	
+		}
+			
+		if(PageLocked(iscsi_page->page))
+			pages_locked++;
+	}
+	spin_unlock(&lru_lock);
+
+	seq_printf(m, "iSCSI Cache Status:\n");
+	seq_printf(m, "\tpage_dirty:%ld, page_locked:%ld, page_dirty_locked:%ld.\n", 
+		pages_dirty, pages_locked, pages_dirty_locked);
+
+	seq_printf(m, "iSCSI Cache include %d volumes:\n", iscsi_cache_total_volume);
 
 	return seq_list_start(&iscsi_cache_list, *pos);
 }
@@ -42,9 +65,7 @@ static int cache_seq_show(struct seq_file *m, void *p)
 {
 	cache_show_info_t *func = (cache_show_info_t *)m->private;
 
-	seq_printf(m, "iSCSI Cache Status:\n");
-
-	func(m);
+	func(m, p);
 
 	return 0;
 }
@@ -57,14 +78,12 @@ struct seq_operations cache_seq_op = {
 };
 
 
-static void cache_volume_info_show(struct seq_file *seq)
+static void cache_volume_info_show(struct seq_file *seq, void *p)
 {
-	struct iscsi_cache * volume;
+	struct iscsi_cache * volume = list_entry(p, struct iscsi_cache, list);
 	
-	list_for_each_entry(volume, &iscsi_cache_list, list) {
-		seq_printf(seq, "\tcache Path:%s total:%u dirty:%u\n",
-			&volume->path[0], atomic_read(&volume->total_pages), atomic_read(&volume->dirty_pages));
-	}	
+	seq_printf(seq, "\tCache Path:%s total:%u dirty:%u\n",
+		&volume->path[0], atomic_read(&volume->total_pages), atomic_read(&volume->dirty_pages));
 }
 
 static int cache_status_seq_open(struct inode *inode, struct file *file)

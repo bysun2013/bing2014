@@ -34,12 +34,13 @@ extern unsigned int iet_mem_size;
 extern char *iet_mem_virt;
 
 unsigned long iscsi_cache_total_pages;
+unsigned int iscsi_cache_total_volume = 0;
 
 struct kmem_cache *cache_request_cache;
 
 /*LRU link all of pages and devices*/
-static struct list_head lru;
-static spinlock_t lru_lock;
+struct list_head lru;
+spinlock_t lru_lock;
 
 /* list all of volume, which use cache. */
 struct list_head iscsi_cache_list;
@@ -423,11 +424,11 @@ again:
 
 		iet_page->valid_bitmap |= bitmap;
 		if(iet_page->dirty_bitmap == 0x00){
+			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
 			atomic_inc(&iscsi_cache->dirty_pages);
 			iet_page->dirtied_when = jiffies;
 		}
 		iet_page->dirty_bitmap |= bitmap;
-		iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
 		
 		mutex_unlock(&iet_page->write);
 
@@ -611,7 +612,8 @@ void* init_iscsi_cache(const char *path, int owner)
 	iscsi_cache->port = echo_port;
 	iscsi_cache->owner = vol_owner;
 	//iscsi_cache->conn = cache_conn_init(iscsi_cache);
-	
+
+	iscsi_cache_total_volume++;
 	
 	return (void *)iscsi_cache;
 }
@@ -634,7 +636,9 @@ void del_iscsi_cache(void *iscsi_cachep)
 	//cache_conn_exit(iscsi_cache);
 
 	blkdev_put(iscsi_cache->bdev, (FMODE_READ |FMODE_WRITE));
-	cache_dbg("Good, release block device.\n");
+	cache_dbg("Good, release block device, path= %s.\n", iscsi_cache->path);
+
+	iscsi_cache_total_volume--;
 
 	kfree(iscsi_cache);
 }
@@ -644,14 +648,12 @@ EXPORT_SYMBOL_GPL(init_iscsi_cache);
 
 static void iscsi_global_cache_exit(void)
 {
-	
-	struct list_head *list, *tmp;
-	struct iscsi_cache_page *iscsi_page;
 
+	unregister_chrdev(ctr_major_cache, ctr_name_cache);
+	
 	cache_procfs_exit();
 
 	wb_thread_exit();
-	unregister_chrdev(ctr_major_cache, ctr_name_cache);
 
 	if(cache_request_cache)
 		kmem_cache_destroy(cache_request_cache);

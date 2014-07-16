@@ -21,7 +21,7 @@
 #include "cache_conn/cache_conn.h"
 #include "iet_cache_u.h"
 
-#define CACHE_VERSION "0.02"
+#define CACHE_VERSION "0.04"
 
 extern bool peer_is_good;
 
@@ -29,6 +29,7 @@ extern struct list_head iscsi_cache_list;
 extern struct mutex iscsi_cache_list_lock;
 
 extern unsigned long iscsi_cache_total_pages;
+extern unsigned int iscsi_cache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
 #define PVEC_SIZE		16
@@ -82,7 +83,7 @@ struct iscsi_cache{
 	
 	struct cache_connection * conn;
 	
-	struct list_head list;		/* list all of radix tree in cache */
+	struct list_head list;		/* list all of volume in cache */
 	
 	struct radix_tree_root page_tree;	/* radix tree of all cache pages */
 	spinlock_t	 tree_lock;	 /* and lock protecting it */

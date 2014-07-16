@@ -11,7 +11,7 @@ struct task_struct *iscsi_wb_forker;
 /*
  * Start background writeback (via writeback threads) at this percentage
  */
-unsigned long cache_dirty_background_ratio = 5;
+unsigned long cache_dirty_background_ratio = 10;
 /*
  * The interval between `kupdate'-style writebacks
  */
@@ -63,8 +63,7 @@ static void iscsi_tag_pages_for_writeback(struct iscsi_cache *iscsi_cache,
 		spin_unlock_irq(&iscsi_cache->tree_lock);
 		WARN_ON_ONCE(tagged > WRITEBACK_TAG_BATCH);
 
-		synchronize_rcu();
-		//cond_resched();
+		cond_resched();
 		/* We check 'start' to handle wrapping when end == ~0UL */
 	} while (tagged >= WRITEBACK_TAG_BATCH && start);
 }
@@ -138,9 +137,9 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 {
 	int err = 0;
 	int done = 0;
-	int m;
+//	int m;
 	/* used for cache sync, only support page size now */
-	pgoff_t wb_index[PVEC_SIZE];
+//	pgoff_t wb_index[PVEC_SIZE];
 	
 	struct iscsi_cache_page *pages[PVEC_SIZE];
 	pgoff_t index=0;
@@ -163,7 +162,7 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 	
 	while (!done && (index <= end)) {
 		int i;
-		int wrote_index = 0;
+//		int wrote_index = 0;
 		nr_pages = iscsi_find_get_pages_tag(iscsi_cache, &index, tag,
 			      min(end - index, (pgoff_t)PVEC_SIZE-1) + 1, pages);
 		if (nr_pages == 0)
@@ -182,8 +181,8 @@ int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_w
 			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
 continue_unlock:
 				unlock_page(iscsi_page->page);
-				pages[i]=	NULL;
-				wb_index[i]= -1;
+//				pages[i]=	NULL;
+//				wb_index[i]= -1;
 				continue;
 			}
 
@@ -208,16 +207,18 @@ continue_unlock:
 				goto continue_unlock;
 			}
 
-			
 			iscsi_clear_page_tag(iscsi_page, tag);
 			if(wbc->mode == ISCSI_WB_SYNC_ALL){
 				iscsi_clear_page_tag(iscsi_page, ISCSICACHE_TAG_TOWRITE);
 				iscsi_delete_page(iscsi_page);
 			}
 			
-			wb_index[wrote_index++]= iscsi_page->index;
+//			wb_index[wrote_index++]= iscsi_page->index;
 			
+			iscsi_page->dirty_bitmap = 0x00;
 			atomic_dec(&iscsi_cache->dirty_pages);
+			mutex_unlock(&iscsi_page->write);
+			
 			wbc->nr_to_write--;
 			if(wbc->nr_to_write < 1){
 				done=1;
@@ -232,12 +233,12 @@ continue_unlock:
 			wb_index[m]= -1;
 		if(iscsi_cache->owner && wrote_index && peer_is_good)
 			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);*/
-		for(m=0; m<nr_pages; m++){
-			if(!pages[m])
-				continue;
-			pages[m]->dirty_bitmap=0x00;
-			mutex_unlock(&pages[m]->write);
-		}
+//		for(m=0; m<nr_pages; m++){
+//			if(!pages[m])
+//				continue;
+//			pages[m]->dirty_bitmap=0x00;
+//			mutex_unlock(&pages[m]->write);
+//		}
 	
 		cond_resched();
 	}	
@@ -284,7 +285,7 @@ bool over_bground_thresh(struct iscsi_cache *iscsi_cache){
 	if(dirty_pages < 64)
 		return false;
 	
-	ratio = dirty_pages * 100/iscsi_cache_total_pages;
+	ratio = dirty_pages * 100*iscsi_cache_total_volume/iscsi_cache_total_pages;
 	if(ratio > cache_dirty_background_ratio)
 		return true;
 	return false;
@@ -398,7 +399,6 @@ static long cache_wb_old_data_flush(struct iscsi_cache *iscsi_cache)
 
 	iscsi_cache->last_old_flush = jiffies;
 	cache_wakeup_thread_delayed(iscsi_cache);
-	cache_dbg("wakes up periodically and does kupdated style flushing.\n");
 	
 	return cache_writeback(iscsi_cache, &work);
 }
@@ -434,7 +434,7 @@ int cache_writeback_thread(void *data)
 	wb->last_active = jiffies; 
 	wb->last_old_flush = jiffies; 
 	
-	cache_dbg("WB Thread starts, path= %s", wb->path);
+	cache_dbg("WB Thread starts, path= %s\n", wb->path);
 	while (!kthread_should_stop()) {
 		/*
 		 * Remove own delayed wake-up timer, since we are already awake
@@ -455,7 +455,7 @@ int cache_writeback_thread(void *data)
 		
 		schedule_timeout(msecs_to_jiffies(cache_dirty_writeback_interval * 10));
 	}
-	cache_dbg("WB Thread ends, path= %s", wb->path);
+	cache_dbg("WB Thread ends, path= %s\n", wb->path);
 
 	del_timer(&wb->wakeup_timer);
 	/* Flush any work that raced with us exiting */
@@ -515,7 +515,7 @@ static int cache_forker_thread(void * args)
 		case FORK_THREAD:			
 			__set_current_state(TASK_RUNNING);
 			task = kthread_create(cache_writeback_thread, iscsi_cache,
-					      "icache-%s", iscsi_cache->path);
+					      "wb_%s", &iscsi_cache->path[5]);
 			if (IS_ERR(task)) {
 				writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 			} else {
