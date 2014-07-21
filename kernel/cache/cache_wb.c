@@ -4,6 +4,7 @@
  * Released under the terms of the GNU GPL v2.0.
  */
 #include <linux/freezer.h>
+
 #include "cache.h"
 #include "cache_wb.h"
 
@@ -20,250 +21,6 @@ unsigned int cache_dirty_writeback_interval = 5 * 100; /* centiseconds */
  * The longest time for which data is allowed to remain dirty
  */
 unsigned int cache_dirty_expire_interval = 30 * 100; /* centiseconds */
-
-
-void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
-{
-	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
-	if (iscsi_cache) {	/* Race with truncate? */
-		spin_lock_irq(&iscsi_cache->tree_lock);
-		radix_tree_tag_set(&iscsi_cache->page_tree,
-				iscsi_page->index, tag);
-		spin_unlock_irq(&iscsi_cache->tree_lock);
-
-		synchronize_rcu();
-	}
-}
-
-void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
-{
-	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
-	
-	if (iscsi_cache) {	/* Race with truncate? */
-		spin_lock_irq(&iscsi_cache->tree_lock);
-		radix_tree_tag_clear(&iscsi_cache->page_tree,
-				iscsi_page->index, tag);
-		spin_unlock_irq(&iscsi_cache->tree_lock);
-		
-		synchronize_rcu();
-	}
-}
-
-static void iscsi_tag_pages_for_writeback(struct iscsi_cache *iscsi_cache,
-			     pgoff_t start, pgoff_t end)
-{
-#define WRITEBACK_TAG_BATCH 4096
-	unsigned long tagged;
-
-	do {
-		spin_lock_irq(&iscsi_cache->tree_lock);
-		tagged = radix_tree_range_tag_if_tagged(&iscsi_cache->page_tree,
-				&start, end, WRITEBACK_TAG_BATCH,
-				ISCSICACHE_TAG_DIRTY, ISCSICACHE_TAG_TOWRITE);
-		spin_unlock_irq(&iscsi_cache->tree_lock);
-		WARN_ON_ONCE(tagged > WRITEBACK_TAG_BATCH);
-
-		cond_resched();
-		/* We check 'start' to handle wrapping when end == ~0UL */
-	} while (tagged >= WRITEBACK_TAG_BATCH && start);
-}
-
-static unsigned iscsi_find_get_pages_tag(struct iscsi_cache *iscsi_cache, pgoff_t *index,
-			int tag, unsigned int nr_pages, struct iscsi_cache_page **pages)
-{
-	unsigned int i;
-	unsigned int ret;
-	unsigned int nr_found;
-
-	rcu_read_lock();
-restart:
-	nr_found = radix_tree_gang_lookup_tag_slot(&iscsi_cache->page_tree,
-				(void ***)pages, *index, nr_pages, tag);
-	ret = 0;
-	for (i = 0; i < nr_found; i++) {
-		struct iscsi_cache_page *page;
-repeat:
-		page = radix_tree_deref_slot((void **)pages[i]);
-		if (unlikely(!page))
-			continue;
-
-		/*
-		 * This can only trigger when the entry at index 0 moves out
-		 * of or back to the root: none yet gotten, safe to restart.
-		 */
-		if (radix_tree_deref_retry(page))
-			goto restart;
-
-		/* Has the page moved? */
-		if (unlikely(page != *((void **)pages[i]))) {
-			goto repeat;
-		}
-
-		pages[ret] = page;
-		ret++;
-	}
-
-	/*
-	 * If all entries were removed before we could secure them,
-	 * try again, because callers stop trying once 0 is returned.
-	 */
-	if (unlikely(!ret && nr_found))
-		goto restart;
-	rcu_read_unlock();
-	
-	cond_resched();
-	
-	if (ret)
-		*index = pages[ret - 1]->index + 1;
-	
-	return ret;
-}
-static void iscsi_delete_page(struct iscsi_cache_page *iscsi_page)
-{
-	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
-	
-	if (iscsi_cache) {	/* Race with truncate? */
-		spin_lock_irq(&iscsi_cache->tree_lock);
-		radix_tree_delete(&iscsi_cache->page_tree,
-				iscsi_page->index);
-		iscsi_page->iscsi_cache = NULL;
-		spin_unlock_irq(&iscsi_cache->tree_lock);
-		
-		synchronize_rcu();
-	}
-}
-
-int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_writeback_control *wbc)
-{
-	int err = 0;
-	int done = 0;
-//	int m;
-	/* used for cache sync, only support page size now */
-//	pgoff_t wb_index[PVEC_SIZE];
-	
-	struct iscsi_cache_page *pages[PVEC_SIZE];
-	pgoff_t index=0;
-	pgoff_t end=wbc->range_end;
-	unsigned long  nr_pages = wbc->nr_to_write;
-	int tag;
-
-	BUG_ON(!iscsi_cache->owner);
-		
-	if (wbc->mode == ISCSI_WB_SYNC_ALL)
-		tag = ISCSICACHE_TAG_TOWRITE;
-	else
-		tag = ISCSICACHE_TAG_DIRTY;
-
-	if(!iscsi_cache)
-		return 0;
-	
-	if (wbc->mode == ISCSI_WB_SYNC_ALL)
-		iscsi_tag_pages_for_writeback(iscsi_cache, index, end);
-	
-	while (!done && (index <= end)) {
-		int i;
-//		int wrote_index = 0;
-		nr_pages = iscsi_find_get_pages_tag(iscsi_cache, &index, tag,
-			      min(end - index, (pgoff_t)PVEC_SIZE-1) + 1, pages);
-		if (nr_pages == 0)
-			break;
-
-		for (i = 0; i < nr_pages; i++) {
-			struct iscsi_cache_page *iscsi_page = pages[i];
-
-			if (iscsi_page->index > end) {
-				done = 1;
-				break;
-			}
-
-			lock_page(iscsi_page->page);
-
-			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
-continue_unlock:
-				unlock_page(iscsi_page->page);
-//				pages[i]=	NULL;
-//				wb_index[i]= -1;
-				continue;
-			}
-
-			if (!(iscsi_page->dirty_bitmap & 0xff)) {
-				/* someone wrote it for us */
-				goto continue_unlock;
-			}
-
-			if (!mutex_trylock(&iscsi_page->write)) {
-				if (wbc->mode == ISCSI_WB_SYNC_ALL)
-					mutex_lock(&iscsi_page->write);
-				else
-					goto continue_unlock;
-			}
-			
-			cache_alert("WRITEBACK one page. Index is %llu, dirty bitmap is %#x.\n", 
-				(unsigned long long)iscsi_page->index, iscsi_page->dirty_bitmap);
-
-			err = cache_write_page_blocks(iscsi_page);
-			if (unlikely(err)) {
-				mutex_unlock(&iscsi_page->write);
-				goto continue_unlock;
-			}
-
-			iscsi_clear_page_tag(iscsi_page, tag);
-			if(wbc->mode == ISCSI_WB_SYNC_ALL){
-				iscsi_clear_page_tag(iscsi_page, ISCSICACHE_TAG_TOWRITE);
-				iscsi_delete_page(iscsi_page);
-			}
-			
-//			wb_index[wrote_index++]= iscsi_page->index;
-			
-			iscsi_page->dirty_bitmap = 0x00;
-			atomic_dec(&iscsi_cache->dirty_pages);
-			mutex_unlock(&iscsi_page->write);
-			
-			wbc->nr_to_write--;
-			if(wbc->nr_to_write < 1){
-				done=1;
-				unlock_page(iscsi_page->page);
-				break;
-			}
-			unlock_page(iscsi_page->page);
-		}
-		
-		/* submit page index of written pages to peer */
-/*		for(m=wrote_index; m<PVEC_SIZE && peer_is_good; m++)
-			wb_index[m]= -1;
-		if(iscsi_cache->owner && wrote_index && peer_is_good)
-			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);*/
-//		for(m=0; m<nr_pages; m++){
-//			if(!pages[m])
-//				continue;
-//			pages[m]->dirty_bitmap=0x00;
-//			mutex_unlock(&pages[m]->write);
-//		}
-	
-		cond_resched();
-	}	
-
-	return err;
-}
-
-/* return nr of wrote pages */
-int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write)
-{
-	int err;
-
-	struct cache_writeback_control wbc = {
-		.nr_to_write = pages_to_write,
-		.mode = mode,
-		.range_start = 0,
-		.range_end = ULONG_MAX,
-	};
-
-	if(!iscsi_cache->owner)
-		return 0;
-	
-	err = cache_writeback_block_device(iscsi_cache, &wbc);
-	return (pages_to_write - wbc.nr_to_write);
-}
 
 int writeback_all(void){
 	struct iscsi_cache *iscsi_cache;
@@ -426,26 +183,26 @@ static long cache_do_writeback(struct iscsi_cache *iscsi_cache)
  */
 int cache_writeback_thread(void *data)
 {
-	struct iscsi_cache *wb = (struct iscsi_cache *)data;
+	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)data;
 	long pages_written;
 	
 	set_user_nice(current, 0);
 	
-	wb->last_active = jiffies; 
-	wb->last_old_flush = jiffies; 
+	iscsi_cache->last_active = jiffies; 
+	iscsi_cache->last_old_flush = jiffies; 
 	
-	cache_dbg("WB Thread starts, path= %s\n", wb->path);
+	cache_dbg("WB Thread starts, path= %s\n", iscsi_cache->path);
 	while (!kthread_should_stop()) {
 		/*
 		 * Remove own delayed wake-up timer, since we are already awake
 		 * and we'll take care of the periodic write-back.
 		 */
-		del_timer(&wb->wakeup_timer);
+		del_timer(&iscsi_cache->wakeup_timer);
 
-		pages_written = cache_do_writeback(wb);
+		pages_written = cache_do_writeback(iscsi_cache);
 
 		if (pages_written)
-			wb->last_active = jiffies;
+			iscsi_cache->last_active = jiffies;
 
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (kthread_should_stop()) {
@@ -455,12 +212,13 @@ int cache_writeback_thread(void *data)
 		
 		schedule_timeout(msecs_to_jiffies(cache_dirty_writeback_interval * 10));
 	}
-	cache_dbg("WB Thread ends, path= %s\n", wb->path);
+	cache_dbg("WB Thread ends, path= %s\n", iscsi_cache->path);
 
-	del_timer(&wb->wakeup_timer);
+	del_timer(&iscsi_cache->wakeup_timer);
 	/* Flush any work that raced with us exiting */
-	writeback_single(wb, ISCSI_WB_SYNC_ALL,  ULONG_MAX);
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL,  ULONG_MAX);
 	
+	complete_all(&iscsi_cache->wb_completion);
 	return 0;
 }
 
@@ -516,6 +274,7 @@ static int cache_forker_thread(void * args)
 			__set_current_state(TASK_RUNNING);
 			task = kthread_create(cache_writeback_thread, iscsi_cache,
 					      "wb_%s", &iscsi_cache->path[5]);
+			init_completion(&iscsi_cache->wb_completion);
 			if (IS_ERR(task)) {
 				writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 			} else {

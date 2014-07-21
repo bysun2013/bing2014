@@ -61,7 +61,6 @@ struct iscsi_cache_page{
 	spinlock_t page_lock;
 
 	unsigned long flag;
-	struct mutex write;
 
 	struct list_head lru_list;
 	/* block is 512 Byte, and page is 4KB */
@@ -98,6 +97,7 @@ struct iscsi_cache{
 	atomic_t total_pages;
 	
 	struct task_struct *task;	/* writeback thread */
+	struct completion wb_completion; /* wait for writeback thread exit */
 	struct timer_list wakeup_timer; /* used for delayed thread wakeup */
 
 };

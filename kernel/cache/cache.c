@@ -34,7 +34,7 @@ extern unsigned int iet_mem_size;
 extern char *iet_mem_virt;
 
 unsigned long iscsi_cache_total_pages;
-unsigned int iscsi_cache_total_volume = 0;
+unsigned int iscsi_cache_total_volume;
 
 struct kmem_cache *cache_request_cache;
 
@@ -60,8 +60,6 @@ static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache
 			cache_dbg("something is wrong when add page to cache, it's perhaps not fault.\n");
 		}
 		radix_tree_preload_end();
-
-		synchronize_rcu();
 	}else
 		cache_err("Error occurs when preload cache!\n");
 	
@@ -76,8 +74,6 @@ static void del_page_from_radix(struct iscsi_cache_page *page)
 	radix_tree_delete(&iscsi_cache->page_tree, page->index);
 	page->iscsi_cache = NULL;
 	spin_unlock_irq(&iscsi_cache->tree_lock);
-
-	synchronize_rcu();
 }
 
 /* find the exact page pointer, or return NULL */
@@ -86,6 +82,8 @@ static struct iscsi_cache_page *find_page_from_radix(struct iscsi_cache *iscsi_c
 	
 	struct iscsi_cache_page * iscsi_page;
 	void **pagep;
+	
+	cond_resched();
 	
 	rcu_read_lock();
 repeat:
@@ -105,8 +103,6 @@ repeat:
 	}
 out:
 	rcu_read_unlock();
-	
-	cond_resched();
 
 	return iscsi_page;
 
@@ -143,6 +139,10 @@ again:
 		iscsi_page=list_entry(list, struct iscsi_cache_page, lru_list);
 		if(!trylock_page(iscsi_page->page))
 			continue;
+		if(PageWriteback(iscsi_page->page)){
+			unlock_page(iscsi_page->page);
+			continue;
+		}
 		if((iscsi_page->dirty_bitmap & 0xff) == 0){
 			list_del_init(list);
 			spin_unlock(&lru_lock);
@@ -419,7 +419,9 @@ again:
 			unlock_page(iet_page->page);
 			goto again;
 		}
-		mutex_lock(&iet_page->write);
+		wait_on_page_writeback(iet_page->page);
+		BUG_ON(PageWriteback(iet_page->page));
+		
 		copy_tio_to_cache(page, iet_page, bitmap, skip_blk, current_bytes);
 
 		iet_page->valid_bitmap |= bitmap;
@@ -427,10 +429,10 @@ again:
 			iscsi_set_page_tag(iet_page, ISCSICACHE_TAG_DIRTY);
 			atomic_inc(&iscsi_cache->dirty_pages);
 			iet_page->dirtied_when = jiffies;
+			if(iscsi_cache->owner && over_bground_thresh(iscsi_cache))
+				wakeup_cache_flusher(iscsi_cache);
 		}
 		iet_page->dirty_bitmap |= bitmap;
-		
-		mutex_unlock(&iet_page->write);
 
 		update_lru_list(&iet_page->lru_list);
 		unlock_page(iet_page->page);
@@ -628,15 +630,17 @@ void del_iscsi_cache(void *iscsi_cachep)
 	list_del_init(&iscsi_cache->list);
 	mutex_unlock(&iscsi_cache_list_lock);
 
-	if(iscsi_cache->task)
+	if(iscsi_cache->task){
 		kthread_stop(iscsi_cache->task);
+		wait_for_completion(&iscsi_cache->wb_completion);
+	}
 	/* FIXME Here Linux kernel panic, reason is unknown */
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
 
 	//cache_conn_exit(iscsi_cache);
 
 	blkdev_put(iscsi_cache->bdev, (FMODE_READ |FMODE_WRITE));
-	cache_dbg("Good, release block device, path= %s.\n", iscsi_cache->path);
+	cache_dbg("Good, release block device %s.\n", iscsi_cache->path);
 
 	iscsi_cache_total_volume--;
 
@@ -717,9 +721,10 @@ static int iscsi_global_cache_init(void)
 		iscsi_page->index= -1; 
 		iscsi_page->dirty_bitmap=iscsi_page->valid_bitmap=0x00;
 		iscsi_page->page=page;
+		page->mapping = (struct address_space *)iscsi_page;
+		
 		spin_lock_init(&iscsi_page->page_lock);
 		iscsi_page->flag=0;
-		mutex_init(&iscsi_page->write);
 		list_add_tail(&iscsi_page->lru_list, &lru);
 		
 		iscsi_struct_addr += iscsi_struct_size;
