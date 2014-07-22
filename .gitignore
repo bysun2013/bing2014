@@ -5,6 +5,7 @@
 *.mod
 *.mod.c
 *.order
+*.symvers
 
 # Libraries
 *.lib
@@ -22,6 +23,8 @@
 *.app
 ietadm
 ietd
+ietadm_cache
+ietd_cache
 
 #temporary files
 *.bak

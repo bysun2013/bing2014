@@ -620,6 +620,9 @@ void* init_iscsi_cache(const char *path, int owner)
 	return (void *)iscsi_cache;
 }
 
+/* 
+* In case memory leak, it's necessary to delete all the pages in the radix tree.
+*/
 void del_iscsi_cache(void *iscsi_cachep)
 {
 	struct iscsi_cache *iscsi_cache=(struct iscsi_cache *)iscsi_cachep;
@@ -634,7 +637,7 @@ void del_iscsi_cache(void *iscsi_cachep)
 		kthread_stop(iscsi_cache->task);
 		wait_for_completion(&iscsi_cache->wb_completion);
 	}
-	/* FIXME Here Linux kernel panic, reason is unknown */
+	
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
 
 	//cache_conn_exit(iscsi_cache);
