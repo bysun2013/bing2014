@@ -174,7 +174,7 @@ int cache_rw_page(struct iscsi_cache_page *iet_page, int rw)
 out:
 	bio_put(bio);
 	kfree(tio_work);
-	cache_err("Error occurs when page r/w.\n");
+	cache_err("Error occurs when page rw.\n");
 	
 	return err;
 }
@@ -563,10 +563,6 @@ int writeback_single_simple(struct iscsi_cache *iscsi_cache, unsigned int mode, 
 
 /*
  * I/O completion handler for multipage BIOs.
- *
- * The mpage code never puts partial pages into a BIO (except for end-of-file).
- * If a page does not map to a contiguous run of blocks then it simply falls
- * back to block_read_full_page().
  */
 static void cache_mpage_endio(struct bio *bio, int err)
 {
@@ -585,20 +581,20 @@ static void cache_mpage_endio(struct bio *bio, int err)
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
 		
-		if (bio_data_dir(bio) == READ) {
+		//if (bio_data_dir(bio) == READ) {
 			//unlock_page(page);
-		} else { /* WRITE */
-			if (!uptodate)
-				cache_err("Error when submit to block device.\n");
-			
-			cache_dbg("WRITEBACK one page. Index is %llu", 
-				(unsigned long long)iscsi_page->index);
-			cache_end_page_writeback(iscsi_page);
-		}
+		//} else { /* WRITE */
+		if (!uptodate)
+			cache_err("Error when submit to block device.\n");
+		
+		cache_dbg("WRITEBACK one page. Index is %llu.\n", 
+			(unsigned long long)iscsi_page->index);
+		cache_end_page_writeback(iscsi_page);
+		//}
 	} while (bvec >= bio->bi_io_vec);
 	
-	if (bio_data_dir(bio) == WRITE)
-		cache_dbg("This bio includes %d pages.\n", bio->bi_vcnt);
+	//if (bio_data_dir(bio) == WRITE)
+	cache_dbg("This bio includes %d pages.\n", bio->bi_vcnt);
 	
 	/* If last bio signal completion */
 	if (atomic_dec_and_test(&tio_work->bios_remaining))
@@ -639,9 +635,6 @@ struct cache_mpage_data {
 	unsigned long last_page_in_bio;
 };
 
-/**
-* unlock_page() must be done in cache_mpage_endio.
-*/
 static int cache_do_writepage(struct iscsi_cache_page *iscsi_page, 
 	struct cache_writeback_control *wbc, struct cache_mpage_data *mpd, struct tio_work *tio_work)
 {	
@@ -651,8 +644,9 @@ static int cache_do_writepage(struct iscsi_cache_page *iscsi_page,
 	struct bio* bio = mpd->bio;
 	struct iscsi_cache *iscsi_cache = iscsi_page->iscsi_cache;
 	struct block_device * bdev = iscsi_cache->bdev;
-/*	
-	if ((iscsi_page->dirty_bitmap & 0xff) != 0xff){
+
+	/* I believe the minimal block should be 4KB, so ignore it. */ 
+/*	if ((iscsi_page->dirty_bitmap & 0xff) != 0xff){
 		cache_err("This page is not 0xff.\n");
 		goto confused;
 	}
@@ -673,8 +667,8 @@ alloc_new:
 	}
 
 	if (bio_add_page(bio, iscsi_page->page, length, 0) < length) {
+		cache_dbg("bio maybe it's full: %d pages.\n", bio->bi_vcnt);
 		bio = cache_mpage_bio_submit(bio, WRITE);
-		cache_err("can't add to bio, maybe it's full.\n");
 		goto alloc_new;
 	}
 	
@@ -753,7 +747,12 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 				break;
 			}
 
-			lock_page(iscsi_page->page);
+			if(!trylock_page(iscsi_page->page)){
+				if (wbc->mode != ISCSI_WB_SYNC_NONE)
+					lock_page(iscsi_page->page);
+				else
+					continue;
+			}
 
 			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
 continue_unlock:
@@ -803,9 +802,19 @@ continue_unlock:
 			mpd->bio = cache_mpage_bio_submit(mpd->bio, WRITE);
 		
 		blk_finish_plug(&plug);
-		
+
+		/*
+		if(wait_for_completion_timeout(&tio_work->tio_complete, 240*HZ)==0)
+			cache_alert("after 240s, %d bio still aren't submitted.\n", 
+						atomic_read(&tio_work->bios_remaining));
+		*/
 		wait_for_completion(&tio_work->tio_complete);
 		
+		err = atomic_read(&tio_work->error);
+		if(unlikely(err)){
+			cache_err("Something unpected happened, disk may be abnormal.\n");
+			goto error;
+		}
 		/* submit page index of written pages to peer */
 /*		for(m=wrote_index; m<PVEC_SIZE && peer_is_good; m++)
 			wb_index[m]= -1;
@@ -820,13 +829,16 @@ continue_unlock:
 	
 		cond_resched();
 	}	
-	
+error:
 	kfree(tio_work);
-	return err;	
+	return err;
 }
 
 
-/* return nr of wrote pages */
+/**
+* FIXME periodically kupdate don't support oldest pages writeback now. 
+* 	return nr of wrote pages 
+*/
 int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write)
 {
 	int ret;
@@ -845,8 +857,7 @@ int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigne
 	
 	ret = cache_writeback_mpage(iscsi_cache, &wbc, &mpd);
 	
-	if (mpd.bio)
-		cache_mpage_bio_submit(mpd.bio, WRITE);
+	BUG_ON(mpd.bio != NULL);
 
 	if(unlikely(ret)){
 		cache_err("An error has occurred when writeback.\n");

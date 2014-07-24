@@ -32,7 +32,7 @@ extern unsigned long iscsi_cache_total_pages;
 extern unsigned int iscsi_cache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
-#define PVEC_SIZE		16
+#define PVEC_SIZE		64
 #define ADDR_LEN 		16
 #define PATH_LEN 		32
 
@@ -58,7 +58,6 @@ struct iscsi_cache_page{
 	unsigned long dirtied_when;	/* jiffies of first dirtying */
 	
 	struct page *page;
-	spinlock_t page_lock;
 
 	unsigned long flag;
 
@@ -74,8 +73,11 @@ struct iscsi_cache{
 
 	/* Inter-connection of Cache */
 	bool owner;
+	bool origin_owner;
+
 	char inet_addr[ADDR_LEN];
 	char inet_peer_addr[ADDR_LEN];
+
 	int port;
 	
 	struct block_device *bdev;

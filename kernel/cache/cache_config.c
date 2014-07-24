@@ -115,7 +115,7 @@ static int port_set(unsigned long ptr)
 	return 0;
 
 }
-
+/* manual flush all data of volume */
 static int lun_update(unsigned long ptr)
 {
 	struct ietadm_cache_req req;
@@ -126,7 +126,7 @@ static int lun_update(unsigned long ptr)
 	if (err)
 		return -EFAULT;
 	
-	cache_alert("req.rcmnd =%d  req.lun =%d  req.name=%s  req.response =%d \n",
+	cache_info("req.rcmnd =%d  req.lun =%d  req.name=%s  req.response =%d \n",
 		   req.rcmnd,req.lun,req.name,req.response);
 
 	if( req.rcmnd == CACHE_UPDATE) 
@@ -150,6 +150,62 @@ static int lun_update(unsigned long ptr)
 
 	return 0;
 
+}
+/* called when peer recovery */
+static void hb_restore_owner(void)
+{
+	struct iscsi_cache *iscsi_cache;
+	
+	peer_is_good = true;
+	
+	mutex_lock(&iscsi_cache_list_lock);
+	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
+		iscsi_cache->owner = iscsi_cache->origin_owner;
+	}
+	mutex_unlock(&iscsi_cache_list_lock);
+}
+/* called when peer crash */
+static void hb_change_state(void)
+{
+	struct iscsi_cache *iscsi_cache;
+	
+	peer_is_good = false;
+	
+	mutex_lock(&iscsi_cache_list_lock);
+	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
+		iscsi_cache->owner = true;
+	}
+	mutex_unlock(&iscsi_cache_list_lock);
+}
+/**
+*	$0 represent peer work well
+	$1 represent peer crash 
+*/
+static int hb_report_peer_state(unsigned long ptr)
+{
+	struct ctrl_msg_info info;
+	char * msg;
+	int err;
+	msg = info.msg;
+
+	err = copy_from_user(&info, (void *)ptr, sizeof(info));
+	if (err)
+		return -EFAULT;
+	if(peer_is_good){
+		if(strcmp(msg, "$0") == 0){
+			return 0;
+		}else if(strcmp(msg, "$1") ==0){
+			hb_change_state();
+			cache_alert("peer crash, take over all the volumes.\n");
+		}
+	}else	{
+		if(strcmp(msg, "$0") == 0){
+			hb_restore_owner();
+			cache_alert("peer recover, restore the owner of volumes.\n");
+		}
+	}
+
+	return 0;
 }
 
 static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)
@@ -184,6 +240,8 @@ static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case CACHE_LUN_UPD:
 		err = lun_update(arg);
 		break;
+	case CTRL_MSG_SEND:
+		err = hb_report_peer_state(arg);
 	default:
 		cache_alert("invalid ioctl cmd  %d   \n", cmd);
 		err = -EINVAL;

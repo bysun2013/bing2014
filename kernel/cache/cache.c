@@ -307,7 +307,7 @@ again:
 			unlock_page(iet_page->page);
 			goto again;
 		}
-		
+		/*
 		if((iet_page->valid_bitmap & bitmap) != bitmap){
 			cache_dbg("Valid bitmap is not agreed to bitmap to read.\n");
 			
@@ -319,7 +319,7 @@ again:
 			}
 			iet_page->valid_bitmap = iet_page->valid_bitmap | bitmap;
 		}
-		
+		*/
 		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
 
 		update_lru_list(&iet_page->lru_list);
@@ -441,7 +441,7 @@ again:
 	return err;
 }
 
-int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
+int _iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos, bool from_peer)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
 	u32 tio_index = 0;
@@ -491,7 +491,7 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 	return err;
 }
 
-int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
+int _iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos, bool from_peer)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
 	struct cache_request * req;
@@ -554,6 +554,20 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 	return err;
 }
 
+int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos){
+	int err;
+	err = _iscsi_read_cache(iscsi_cachep, pages, pg_cnt, size, ppos, false);
+
+	return err;
+}
+
+int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos){
+	int err;
+	err = _iscsi_write_cache(iscsi_cachep, pages, pg_cnt, size, ppos, false);
+
+	return err;
+}
+
 EXPORT_SYMBOL_GPL(iscsi_write_cache);
 EXPORT_SYMBOL_GPL(iscsi_read_cache);
 
@@ -613,6 +627,8 @@ void* init_iscsi_cache(const char *path, int owner)
 	memcpy(iscsi_cache->inet_peer_addr, echo_peer, strlen(echo_peer));
 	iscsi_cache->port = echo_port;
 	iscsi_cache->owner = vol_owner;
+	iscsi_cache->origin_owner = vol_owner;
+
 	//iscsi_cache->conn = cache_conn_init(iscsi_cache);
 
 	iscsi_cache_total_volume++;
@@ -621,6 +637,7 @@ void* init_iscsi_cache(const char *path, int owner)
 }
 
 /* 
+* FIXME 
 * In case memory leak, it's necessary to delete all the pages in the radix tree.
 */
 void del_iscsi_cache(void *iscsi_cachep)
@@ -726,7 +743,6 @@ static int iscsi_global_cache_init(void)
 		iscsi_page->page=page;
 		page->mapping = (struct address_space *)iscsi_page;
 		
-		spin_lock_init(&iscsi_page->page_lock);
 		iscsi_page->flag=0;
 		list_add_tail(&iscsi_page->lru_list, &lru);
 		

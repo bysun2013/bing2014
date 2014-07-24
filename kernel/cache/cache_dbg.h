@@ -10,7 +10,7 @@
 /**
   * comment it, if you don't want to output much log.
 */
-#if 1
+#if 0
 #define CACHE_DEBUG_ENABLE_FLAGS
 #endif
 
