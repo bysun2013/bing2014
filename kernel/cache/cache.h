@@ -32,7 +32,7 @@ extern unsigned long iscsi_cache_total_pages;
 extern unsigned int iscsi_cache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
-#define PVEC_SIZE		64
+#define PVEC_SIZE		256
 #define ADDR_LEN 		16
 #define PATH_LEN 		32
 
@@ -48,6 +48,14 @@ enum cache_state {
 	CACHE_unused,		/* Available bits start here */
 };
 
+enum page_site {
+	inactive = 0, /* active list*/
+	active,   /*inactive list*/
+	radix,     /*radix tree*/
+	temp,     /*temp list*/
+};
+	
+
 struct iscsi_cache_page{
 	/* initialize when isolated, no lock needed*/
 	struct iscsi_cache  *iscsi_cache;
@@ -61,7 +69,8 @@ struct iscsi_cache_page{
 
 	unsigned long flag;
 
-	struct list_head lru_list;
+	struct list_head list;
+	enum page_site  site;
 	/* block is 512 Byte, and page is 4KB */
 	unsigned char valid_bitmap;
 	unsigned char dirty_bitmap;

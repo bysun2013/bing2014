@@ -9,11 +9,13 @@
 #include <linux/slab.h>
 #include <linux/completion.h>
 #include <linux/hash.h>
+#include <asm/atomic.h>
 
 #include "cache.h"
 #include "cache_wb.h"
+#include "cache_lru.h"
 
-static void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page);
+void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page);
 
 struct tio_work {
 	atomic_t error;
@@ -40,6 +42,7 @@ static void cache_page_endio(struct bio *bio, int error)
 		if (bio_data_dir(bio) == WRITE){	
 			cache_dbg("WRITEBACK one page. Index is %llu.\n", 
 				(unsigned long long)iscsi_page->index);	
+			lru_add_page(iscsi_page);
 			cache_end_page_writeback(iscsi_page);
 		}
 	} while (bvec >= bio->bi_io_vec);
@@ -418,7 +421,7 @@ static int cache_test_set_page_writeback(struct iscsi_cache_page *iscsi_page)
 
 }
 
-static void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page)
+void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page)
 {
 	if (!cache_test_clear_page_writeback(iscsi_page))
 		BUG();
@@ -427,145 +430,14 @@ static void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page)
 	wake_up_page(iscsi_page->page, PG_writeback);
 }
 
-int cache_writeback_block_device(struct iscsi_cache *iscsi_cache, struct cache_writeback_control *wbc)
-{
-	int tag, err = 0, done =0;
-//	int m;
-	/* used for cache sync, only support page size now */
-//	pgoff_t wb_index[PVEC_SIZE];
-
-	struct iscsi_cache_page *pages[PVEC_SIZE];
-	pgoff_t index=0;
-	pgoff_t end=wbc->range_end;
-	unsigned long  nr_pages = wbc->nr_to_write;
-	
-	if(!iscsi_cache)
-		return 0;
-	
-	BUG_ON(!iscsi_cache->owner);
-	
-	if (wbc->mode == ISCSI_WB_SYNC_ALL)
-		tag = ISCSICACHE_TAG_TOWRITE;
-	else
-		tag = ISCSICACHE_TAG_DIRTY;
-	
-	if (wbc->mode == ISCSI_WB_SYNC_ALL)
-		iscsi_tag_pages_for_writeback(iscsi_cache, index, end);
-	
-	while (!done && (index <= end)) {
-		int i;
-//		int wrote_index = 0;
-		nr_pages = iscsi_find_get_pages_tag(iscsi_cache, &index, tag,
-			      min(end - index, (pgoff_t)PVEC_SIZE-1) + 1, pages);
-		if (nr_pages == 0)
-			break;
-
-		for (i = 0; i < nr_pages; i++) {
-			struct iscsi_cache_page *iscsi_page = pages[i];
-
-			if (iscsi_page->index > end) {
-				done = 1;
-				break;
-			}
-
-			lock_page(iscsi_page->page);
-
-			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
-continue_unlock:
-				unlock_page(iscsi_page->page);
-//				pages[i]=	NULL;
-//				wb_index[i]= -1;
-				continue;
-			}
-
-			if (!(iscsi_page->dirty_bitmap & 0xff)) {
-				/* someone wrote it for us */
-				goto continue_unlock;
-			}
-
-			if(PageWriteback(iscsi_page->page)){
-				if (wbc->mode != ISCSI_WB_SYNC_NONE)
-					wait_on_page_writeback(iscsi_page->page);
-				else
-					goto continue_unlock;
-			}
-			BUG_ON(PageWriteback(iscsi_page->page));
-			
-			cache_test_set_page_writeback(iscsi_page);
-
-			cache_alert("WRITEBACK one page. Index is %llu, dirty bitmap is %#x.\n", 
-				(unsigned long long)iscsi_page->index, iscsi_page->dirty_bitmap);
-
-			err = cache_write_page_blocks(iscsi_page);
-			if (unlikely(err)) {
-				cache_err("It should never show up!Maybe disk crash... \n");
-				TestClearPageWriteback(iscsi_page->page);
-				smp_mb__after_clear_bit();
-				wake_up_page(iscsi_page->page, PG_writeback);
-				goto continue_unlock;
-			}
-			
-//			wb_index[wrote_index++]= iscsi_page->index;
-			
-			atomic_dec(&iscsi_cache->dirty_pages);
-			iscsi_page->dirty_bitmap=0x00;
-			
-			if(wbc->mode == ISCSI_WB_SYNC_ALL){
-				iscsi_delete_page(iscsi_page);
-			}
-			
-			wbc->nr_to_write--;
-			if(wbc->nr_to_write < 1){
-				done=1;
-				unlock_page(iscsi_page->page);
-				break;
-			}
-			unlock_page(iscsi_page->page);
-		}
-		
-		/* submit page index of written pages to peer */
-/*		for(m=wrote_index; m<PVEC_SIZE && peer_is_good; m++)
-			wb_index[m]= -1;
-		if(iscsi_cache->owner && wrote_index && peer_is_good)
-			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);*/
-//		for(m=0; m<nr_pages; m++){
-//			if(!pages[m])
-//				continue;
-//			pages[m]->dirty_bitmap=0x00;
-//			mutex_unlock(&pages[m]->write);
-//		}
-	
-		cond_resched();
-	}	
-	
-	return err;
-}
-
-/* return nr of wrote pages */
-int writeback_single_simple(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write)
-{
-	int err;
-
-	struct cache_writeback_control wbc = {
-		.nr_to_write = pages_to_write,
-		.mode = mode,
-		.range_start = 0,
-		.range_end = ULONG_MAX,
-	};
-
-	if(!iscsi_cache->owner)
-		return 0;
-	
-	err = cache_writeback_block_device(iscsi_cache, &wbc);
-	return (pages_to_write - wbc.nr_to_write);
-}
-
-
 /*
  * I/O completion handler for multipage BIOs.
  */
 static void cache_mpage_endio(struct bio *bio, int err)
 {
+	LIST_HEAD(list_inactive);
+	LIST_HEAD(list_active);
+
 	const int uptodate = test_bit(BIO_UPTODATE, &bio->bi_flags);
 	struct bio_vec *bvec = bio->bi_io_vec + bio->bi_vcnt - 1;
 	struct tio_work *tio_work = bio->bi_private;
@@ -581,20 +453,27 @@ static void cache_mpage_endio(struct bio *bio, int err)
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
 		
-		//if (bio_data_dir(bio) == READ) {
+		if (bio_data_dir(bio) == READ) {
 			//unlock_page(page);
-		//} else { /* WRITE */
-		if (!uptodate)
-			cache_err("Error when submit to block device.\n");
-		
-		cache_dbg("WRITEBACK one page. Index is %llu.\n", 
-			(unsigned long long)iscsi_page->index);
-		cache_end_page_writeback(iscsi_page);
-		//}
+		} else { /* WRITE */
+			if (!uptodate)
+				cache_err("Error when submit to block device.\n");
+			
+			cache_dbg("WRITEBACK one page. Index is %llu", 
+				(unsigned long long)iscsi_page->index);
+			if(!PageActive(iscsi_page->page))
+				list_add(&iscsi_page->list,&list_inactive);
+			else
+				list_add(&iscsi_page->list,&list_active);
+			iscsi_page->site = temp;
+			//cache_end_page_writeback(iscsi_page);
+		}
 	} while (bvec >= bio->bi_io_vec);
+	inactive_writeback_add_list(&list_inactive);
+	active_writeback_add_list(&list_active);
 	
-	//if (bio_data_dir(bio) == WRITE)
-	cache_dbg("This bio includes %d pages.\n", bio->bi_vcnt);
+	if (bio_data_dir(bio) == WRITE)
+		cache_dbg("This bio includes %d pages.\n", bio->bi_vcnt);
 	
 	/* If last bio signal completion */
 	if (atomic_dec_and_test(&tio_work->bios_remaining))
@@ -803,11 +682,6 @@ continue_unlock:
 		
 		blk_finish_plug(&plug);
 
-		/*
-		if(wait_for_completion_timeout(&tio_work->tio_complete, 240*HZ)==0)
-			cache_alert("after 240s, %d bio still aren't submitted.\n", 
-						atomic_read(&tio_work->bios_remaining));
-		*/
 		if(atomic_read(&tio_work->bios_remaining))
 			wait_for_completion(&tio_work->tio_complete);
 		
