@@ -577,7 +577,7 @@ static int cache_request_init(void)
 	return  cache_request_cache ? 0 : -ENOMEM;
 }
 
-void* init_iscsi_cache(const char *path, int owner)
+void* init_iscsi_cache(const char *path, int owner, int port)
 {
 	struct iscsi_cache *iscsi_cache;
 	int vol_owner;
@@ -601,6 +601,7 @@ void* init_iscsi_cache(const char *path, int owner)
 	INIT_RADIX_TREE(&iscsi_cache->page_tree, GFP_ATOMIC);
 
 	setup_timer(&iscsi_cache->wakeup_timer, cache_wakeup_timer_fn, (unsigned long)iscsi_cache);
+	iscsi_cache->task = NULL;
 	atomic_set(&iscsi_cache->dirty_pages, 0);
 	atomic_set(&iscsi_cache->total_pages, 0);
 	
@@ -621,11 +622,11 @@ void* init_iscsi_cache(const char *path, int owner)
 	}
 	
 	cache_info("for %s: echo_host = %s  echo_peer = %s  echo_port = %d  owner = %s \n", \
-				iscsi_cache->path, echo_host, echo_peer, echo_port, (vol_owner ? "true" : "false"));
+				iscsi_cache->path, echo_host, echo_peer, port, (vol_owner ? "true" : "false"));
 
 	memcpy(iscsi_cache->inet_addr, echo_host, strlen(echo_host));
 	memcpy(iscsi_cache->inet_peer_addr, echo_peer, strlen(echo_peer));
-	iscsi_cache->port = echo_port;
+	iscsi_cache->port = port;
 	iscsi_cache->owner = vol_owner;
 	iscsi_cache->origin_owner = vol_owner;
 

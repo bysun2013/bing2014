@@ -127,6 +127,5 @@ int cache_rw_page(struct iscsi_cache_page *iet_page, int rw);
 extern int machine_type;
 extern char echo_host[];
 extern char echo_peer[];
-extern int echo_port;
 
 #endif

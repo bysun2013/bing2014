@@ -127,7 +127,6 @@ static void cache_param_init(FILE *fp)
 		}else if (!strcasecmp(p, "Port")) {
 			if (!(p = cache_sep_string(&q)))
 				continue;
-			cache_ki->port_init(p);
 		}
 
 

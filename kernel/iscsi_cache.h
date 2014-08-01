@@ -13,7 +13,7 @@ extern int iscsi_read_cache(void *iscsi_cache, struct page **pages,
 extern int iscsi_write_cache(void *iscsi_cache, struct page **pages,
 		u32 pg_cnt, u32 size, loff_t ppos);
 
-extern void* init_iscsi_cache(const char *path, int owner);
+extern void* init_iscsi_cache(const char *path, int owner, int port);
 
 extern void del_iscsi_cache(void *iscsi_cachep);
 

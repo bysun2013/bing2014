@@ -808,7 +808,8 @@ continue_unlock:
 			cache_alert("after 240s, %d bio still aren't submitted.\n", 
 						atomic_read(&tio_work->bios_remaining));
 		*/
-		wait_for_completion(&tio_work->tio_complete);
+		if(atomic_read(&tio_work->bios_remaining))
+			wait_for_completion(&tio_work->tio_complete);
 		
 		err = atomic_read(&tio_work->error);
 		if(unlikely(err)){

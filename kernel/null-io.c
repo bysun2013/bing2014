@@ -17,7 +17,7 @@
 #include "iotype.h"
 
 enum {
-	opt_blk_cnt, opt_ignore, opt_dest, opt_err,
+	opt_blk_cnt, opt_ignore, opt_dest, opt_port, opt_err,
 };
 
 static match_table_t tokens = {
@@ -31,6 +31,7 @@ static match_table_t tokens = {
 	{opt_ignore, "blocksize=%s"},
 	{opt_ignore, "type=%s"},
 	{opt_dest, "dest=%s"},
+	{opt_port, "port=%s"},
 	{opt_err, NULL},
 };
 
@@ -58,6 +59,8 @@ static int parse_nullio_params(struct iet_volume *volume, char *params)
 			break;
 		case opt_dest:
 			break;
+		case opt_port:
+			break;			
 		default:
 			eprintk("Unknown %s\n", p);
 			return -EINVAL;

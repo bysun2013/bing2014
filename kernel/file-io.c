@@ -119,7 +119,7 @@ static int open_path(struct iet_volume *volume, const char *path)
 }
 
 enum {
-	opt_path, opt_ignore, opt_dest, opt_err,
+	opt_path, opt_ignore, opt_dest, opt_port, opt_err,
 };
 
 static match_table_t tokens = {
@@ -130,6 +130,7 @@ static match_table_t tokens = {
 	{opt_ignore, "iomode=%s"},
 	{opt_ignore, "blocksize=%s"},
 	{opt_dest, "dest=%s"},
+	{opt_port, "port=%s"},
 	{opt_err, NULL},
 };
 
@@ -168,6 +169,8 @@ static int parse_fileio_params(struct iet_volume *volume, char *params)
 			break;
 		case opt_dest:
 			break;
+		case opt_port:
+			break;			
 		default:
 			iprintk("Target %s, LUN %u: unknown param %s\n",
 				volume->target->name, volume->lun, p);

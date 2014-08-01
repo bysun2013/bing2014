@@ -32,6 +32,7 @@ enum {
 	opt_scsisn,
 	opt_blk_size,
 	opt_dest,
+	opt_port,
 	opt_err,
 };
 
@@ -42,6 +43,7 @@ static match_table_t tokens = {
 	{opt_scsisn, "scsisn=%s"},
 	{opt_blk_size, "blocksize=%u"},
 	{opt_dest, "dest=%s"},
+	{opt_port, "port=%s"},
 	{opt_err, NULL},
 };
 
@@ -125,6 +127,7 @@ static int parse_volume_params(struct iet_volume *volume, char *params)
 	unsigned blk_sz;
 	substring_t args[MAX_OPT_ARGS];
 	char *p, *argp = NULL, *bp, *buf = (char *) get_zeroed_page(GFP_USER);
+	int port;
 
 	if (!buf)
 		return -ENOMEM;
@@ -212,6 +215,21 @@ static int parse_volume_params(struct iet_volume *volume, char *params)
 
 			kfree(argp);
 			break;
+		case opt_port:
+			argp = match_strdup(&args[0]);
+			if (!argp) {
+				err = -ENOMEM;
+				break;
+			}
+
+			port = (int) (simple_strtoul(argp, NULL, 10));
+			if ((port > 7000) && (port < 8000)) 	
+				volume->port = port;
+			else
+				eprintk("invalid port numer %d please set it between 7000 and 8000\n", port);
+
+			kfree(argp);
+			break;			
 		default:
 			break;
 		}
@@ -305,7 +323,7 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 	/* initialize iscsi cache */
 	bio_data = volume->private;
 	/* Here need to be set referring to userspace*/ 
-	volume->iscsi_cache = init_iscsi_cache(bio_data->path, volume->machine_dest); 
+	volume->iscsi_cache = init_iscsi_cache(bio_data->path, volume->machine_dest, volume->port); 
 	if(!volume->iscsi_cache){
 		ret = -ENOMEM;
 		goto free_args;

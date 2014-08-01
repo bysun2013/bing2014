@@ -14,7 +14,6 @@ int machine_type;
 char echo_host[PATH_LEN]="10.17.11.1";
 char echo_peer[PATH_LEN]="10.17.11.2";
 bool owner = true;
-int echo_port=7799;
 
 static DEFINE_MUTEX(ioctl_mutex);
 
@@ -108,9 +107,6 @@ static int port_set(unsigned long ptr)
 	err = copy_from_user(&port, (void *) ptr, sizeof(port));
 	if (err)
 		return -EFAULT;
-
-	echo_port = port;
-	cache_info("our machine echo_port = %d \n", echo_port);
 
 	return 0;
 
@@ -235,7 +231,7 @@ static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		err = ip_set(arg);
 		break;	
 	case CACHE_PORT_SET:
-		err = port_set(arg);
+		//err = port_set(arg);
 		break;			
 	case CACHE_LUN_UPD:
 		err = lun_update(arg);

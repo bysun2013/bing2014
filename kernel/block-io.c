@@ -69,7 +69,7 @@ blockio_open_path(struct iet_volume *volume, const char *path)
 /* Create an enumeration of our accepted actions */
 enum
 {
-	opt_path, opt_ignore, opt_dest, opt_err,
+	opt_path, opt_ignore, opt_dest, opt_port, opt_err,
 };
 
 /* Create a match table using our action enums and their matching options */
@@ -81,6 +81,7 @@ static match_table_t tokens = {
 	{opt_ignore, "iomode=%s"},
 	{opt_ignore, "blocksize=%s"},
 	{opt_dest, "dest=%s"},
+	{opt_port, "port=%s"},
 	{opt_err, NULL},
 };
 
@@ -122,6 +123,8 @@ parse_blockio_params(struct iet_volume *volume, char *params)
 		case opt_ignore:
 			break;
 		case opt_dest:
+			break;
+		case opt_port:
 			break;
 		default:
 			iprintk("Target %s, LUN %u: unknown param %s\n",
