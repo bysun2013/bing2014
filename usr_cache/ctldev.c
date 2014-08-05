@@ -127,20 +127,6 @@ static int cache_ip_init(u32 *tid, char *name, int type)
 	return err;
 }
 
-static int cache_port_init(char *name)
-{
-	int port;
-	int err;
-
-	port = atoi (name);
-
-	err = ioctl(ctrl_fd_cache, CACHE_PORT_SET, &port);
-	if (err < 0 )
-		log_error("error reading port \n");
-
-	return err;
-}
-
 static int cache_update_lun(struct ietadm_cache_req *req)
 {	
 	struct ietadm_cache_req req1;
@@ -169,7 +155,6 @@ struct cache_kernel_interface cache_ioctl_ki = {
 	.module_info = cache_module_info_get,
 	.machine_init= cache_machine_init,
        .ip_init  = cache_ip_init,
-       .port_init  = cache_port_init,
 	.cache_update = cache_update_lun,
 
 };

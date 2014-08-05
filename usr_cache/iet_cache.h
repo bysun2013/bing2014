@@ -33,7 +33,6 @@ struct cache_kernel_interface {
 	int (*module_info) (struct cache_module_info *);
        int (*machine_init) (u32 *, char *, int);
        int (*ip_init) (u32 *, char *, int);
-       int (*port_init) (char *);
        int (*cache_update) (struct ietadm_cache_req *);	
 	   
 };

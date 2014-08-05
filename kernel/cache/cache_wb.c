@@ -3,12 +3,14 @@
  *
  * Released under the terms of the GNU GPL v2.0.
  */
+ 
 #include <linux/freezer.h>
 
 #include "cache.h"
 #include "cache_wb.h"
 
 struct task_struct *iscsi_wb_forker;
+
 /*
  * Start background writeback (via writeback threads) at this percentage
  */
@@ -22,33 +24,26 @@ unsigned int cache_dirty_writeback_interval = 5 * 100; /* centiseconds */
  */
 unsigned int cache_dirty_expire_interval = 30 * 100; /* centiseconds */
 
-int writeback_all(void){
-	struct iscsi_cache *iscsi_cache;
-	
-	mutex_lock(&iscsi_cache_list_lock);
-	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
-		mutex_unlock(&iscsi_cache_list_lock);
-		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_ALL, ULONG_MAX);
-		mutex_lock(&iscsi_cache_list_lock);
-	}
-	mutex_unlock(&iscsi_cache_list_lock);
-	
-	return 0;
-}
-
-bool over_bground_thresh(struct iscsi_cache *iscsi_cache){
-	unsigned long ratio;
+/*
+* check whether ratio dirty pages is over the thresh
+*/
+bool over_bground_thresh(struct iscsi_cache *iscsi_cache)
+{
+	unsigned long dirty;
 	unsigned long dirty_pages = atomic_read(&iscsi_cache->dirty_pages);
-	if(dirty_pages < 64)
+
+	if(dirty_pages < 256)
 		return false;
 	
-	ratio = dirty_pages * 100*iscsi_cache_total_volume/iscsi_cache_total_pages;
-	if(ratio > cache_dirty_background_ratio)
+	dirty = dirty_pages * 100 * iscsi_cache_total_volume;
+	if(dirty > cache_dirty_background_ratio * iscsi_cache_total_pages)
 		return true;
 	return false;
 }
 
-/* Wakeup flusher thread or forker thread to fork it. */
+/*
+* Wakeup flusher thread or forker thread to fork it. 
+*/
 void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache)
 {
 	if (iscsi_cache->task) {
@@ -58,6 +53,9 @@ void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache)
 	}
 }
 
+/*
+* called by timer at short intervals
+*/
 void cache_wakeup_timer_fn(unsigned long data)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)data;
@@ -74,7 +72,7 @@ static void cache_wakeup_thread_delayed(struct iscsi_cache *iscsi_cache)
 	unsigned long timeout;
 
 	timeout = msecs_to_jiffies(cache_dirty_writeback_interval * 10);
-	mod_timer(&iscsi_cache->wakeup_timer, jiffies + timeout);
+	mod_timer(&iscsi_cache->wakeup_timer, jiffies + timeout); /* modify timer */
 }
 
 /*
@@ -121,7 +119,9 @@ static long cache_writeback(struct iscsi_cache *iscsi_cache, struct cache_writeb
 	return nr_pages - work->nr_pages;
 }
 
-/* when dirty ratio is over thresh, it's executed */
+/*
+* when dirty ratio is over thresh, it's executed 
+*/
 static long cache_wb_background_flush(struct iscsi_cache *iscsi_cache)
 {
 	if (over_bground_thresh(iscsi_cache)) {
@@ -137,27 +137,33 @@ static long cache_wb_background_flush(struct iscsi_cache *iscsi_cache)
 	return 0;
 }
 
-/* wakes up periodically and does kupdated style flushing. */
+/*
+* wakes up periodically and does kupdated style flushing. 
+*/
 static long cache_wb_old_data_flush(struct iscsi_cache *iscsi_cache)
 {
 	unsigned long expired;
-	struct cache_writeback_work work = {
-		.nr_pages	= atomic_read(&iscsi_cache->dirty_pages),
-		.sync_mode	= ISCSI_WB_SYNC_NONE,
-		.for_kupdate	= 1,
-		.range_cyclic	= 1,
-		.reason		= ISCSI_WB_REASON_PERIODIC,
-	};
 
 	expired = iscsi_cache->last_old_flush +
 			msecs_to_jiffies(cache_dirty_writeback_interval * 10);
 	if (time_before(jiffies, expired))
 		return 0;
-
+	
 	iscsi_cache->last_old_flush = jiffies;
 	cache_wakeup_thread_delayed(iscsi_cache);
+
+	if(atomic_read(&iscsi_cache->dirty_pages)){
+		struct cache_writeback_work work = {
+			.nr_pages	= atomic_read(&iscsi_cache->dirty_pages),
+			.sync_mode	= ISCSI_WB_SYNC_NONE,
+			.for_kupdate	= 1,
+			.range_cyclic	= 1,
+			.reason		= ISCSI_WB_REASON_PERIODIC,
+		};
+		return cache_writeback(iscsi_cache, &work);
+	}
 	
-	return cache_writeback(iscsi_cache, &work);
+	return 0;
 }
 
 /*
@@ -166,13 +172,9 @@ static long cache_wb_old_data_flush(struct iscsi_cache *iscsi_cache)
 static long cache_do_writeback(struct iscsi_cache *iscsi_cache)
 {
 	long wrote = 0;
-
-	set_bit(CACHE_writeback_running, &iscsi_cache->state);
 	
 	wrote += cache_wb_old_data_flush(iscsi_cache);
 	wrote += cache_wb_background_flush(iscsi_cache);
-	
-	clear_bit(CACHE_writeback_running, &iscsi_cache->state);
 
 	return wrote;
 }
@@ -249,7 +251,6 @@ static int cache_forker_thread(void * args)
 			have_dirty_io = over_bground_thresh(iscsi_cache);
 
 			if (!iscsi_cache->task && have_dirty_io) {
-				set_bit(CACHE_pending, &iscsi_cache->state);
 				/* if this machine don't own the volume, ignore it */
 				if(iscsi_cache->owner){
 					action = FORK_THREAD;
@@ -262,7 +263,6 @@ static int cache_forker_thread(void * args)
 						cache_longest_inactive())) {
 				task = iscsi_cache->task;
 				 iscsi_cache->task = NULL;
-				set_bit(CACHE_pending, &iscsi_cache->state);
 				action = KILL_THREAD;
 				break;
 			}
@@ -281,13 +281,11 @@ static int cache_forker_thread(void * args)
 				iscsi_cache->task = task;
 				wake_up_process(task);
 			}
-			clear_bit(CACHE_pending, &iscsi_cache->state);
 			break;
 
 		case KILL_THREAD:
 			__set_current_state(TASK_RUNNING);
 			kthread_stop(task);
-			clear_bit(CACHE_pending, &iscsi_cache->state);
 			break;
 
 		case NO_ACTION:
@@ -312,13 +310,33 @@ static int cache_forker_thread(void * args)
 	return 0;
 }
 
-int wb_thread_init(void){
+/*
+* flush all the volume of cache, wait for page if it's locked.
+*/
+static int writeback_all(void)
+{
+	struct iscsi_cache *iscsi_cache;
+	
+	mutex_lock(&iscsi_cache_list_lock);
+	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list) {
+		mutex_unlock(&iscsi_cache_list_lock);
+		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_ALL, ULONG_MAX);
+		mutex_lock(&iscsi_cache_list_lock);
+	}
+	mutex_unlock(&iscsi_cache_list_lock);
+	
+	return 0;
+}
+
+int wb_thread_init(void)
+{
 	unsigned int err = 0;
 	iscsi_wb_forker=kthread_run(cache_forker_thread, NULL, "cache_wb_forker");
 	return err;
 }
 
-void wb_thread_exit(void){
+void wb_thread_exit(void)
+{
 	if(iscsi_wb_forker)
 		kthread_stop(iscsi_wb_forker);
 	

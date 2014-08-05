@@ -32,20 +32,13 @@ extern unsigned long iscsi_cache_total_pages;
 extern unsigned int iscsi_cache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
-#define PVEC_SIZE		256
+#define PVEC_SIZE		16
 #define ADDR_LEN 		16
 #define PATH_LEN 		32
 
-/*
- * Bits in iscsi_cache.state
- */
-enum cache_state {
-	CACHE_pending,		/* On its way to being activated */
-	CACHE_wb_alloc,		/* Default embedded wb allocated */
-	CACHE_async_congested,	/* The async (write) queue is getting full */
-	CACHE_sync_congested,	/* The sync queue is getting full */
-	CACHE_writeback_running,	/* Writeback is in progress */
-	CACHE_unused,		/* Available bits start here */
+enum request_from{
+	REQUEST_FROM_PEER = 0,
+	REQUEST_FROM_OUT,
 };
 
 enum page_site {

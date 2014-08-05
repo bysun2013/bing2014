@@ -23,6 +23,9 @@ struct tio_work {
 	struct completion tio_complete;
 };
 
+/*
+* called by disk driver, after data are read from disk
+*/
 static void cache_page_endio(struct bio *bio, int error)
 {
 	struct tio_work *tio_work = bio->bi_private;
@@ -39,7 +42,7 @@ static void cache_page_endio(struct bio *bio, int error)
 
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
-		if (bio_data_dir(bio) == WRITE){	
+		if (unlikely(bio_data_dir(bio) == WRITE)){
 			cache_dbg("WRITEBACK one page. Index is %llu.\n", 
 				(unsigned long long)iscsi_page->index);	
 			lru_add_page(iscsi_page);
@@ -54,9 +57,9 @@ static void cache_page_endio(struct bio *bio, int error)
 	bio_put(bio);
 }
 
-/**
-	submit single page segment to the block device, 
-	one segment includes several continuous blocks.
+/*
+* submit single page segment to the block device, one segment includes
+* several continuous blocks.
 */
 static int cache_rw_segment(struct iscsi_cache_page *iet_page,
 	unsigned int start, unsigned int blocks, int rw)
@@ -105,23 +108,17 @@ static int cache_rw_segment(struct iscsi_cache_page *iet_page,
 	}
 
 	blk_start_plug(&plug);
-
 	submit_bio(rw, bio);
-
 	blk_finish_plug(&plug);
 
 	wait_for_completion(&tio_work->tio_complete);
-
 	err = atomic_read(&tio_work->error);
-
 	kfree(tio_work);
-
 	return err;
 out:
+	cache_err("Error occurs when page segment rw\n");
 	bio_put(bio);
 	kfree(tio_work);
-	cache_err("Error occurs when page segment r/w.\n");
-
 	return err;
 }
 
@@ -156,29 +153,25 @@ int cache_rw_page(struct iscsi_cache_page *iet_page, int rw)
 	bio->bi_private = tio_work;
 	
 	atomic_inc(&tio_work->bios_remaining);
+	
 	if (!bio_add_page(bio, iet_page->page, bytes, 0)){
 		err = -ENOMEM;
 		goto out;
 	}
 
 	blk_start_plug(&plug);
-
 	submit_bio(rw, bio);
-	
 	blk_finish_plug(&plug);
 
 	wait_for_completion(&tio_work->tio_complete);
-
 	err = atomic_read(&tio_work->error);
-	
 	kfree(tio_work);
-
 	return err;
+	
 out:
+	cache_err("Error occurs when page rw.\n");
 	bio_put(bio);
 	kfree(tio_work);
-	cache_err("Error occurs when page rw.\n");
-	
 	return err;
 }
 
@@ -230,7 +223,7 @@ error:
 	return err;
 }
 
-/**
+/*
 * blocks in a page aren't always valid,so when writeback
 * submit to block device separately is necessary.
 *
@@ -244,8 +237,9 @@ int cache_write_page_blocks(struct iscsi_cache_page *iet_page)
 	err = _cache_rw_page_blocks(iet_page, bitmap, WRITE);
 	return err;
 }
-/** 
-* If valid bitmap is not agreed to bitmap to read, then read the missed blocks.
+/*
+* If valid bitmap is not agreed to bitmap to read, then 
+* read the missed blocks.
 */
 int cache_check_read_blocks(struct iscsi_cache_page *iet_page,
 		unsigned char valid, unsigned char read)
@@ -368,7 +362,7 @@ static void iscsi_delete_page(struct iscsi_cache_page *iscsi_page)
 {
 	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
 	
-	if (iscsi_cache) {	/* Race with truncate? */
+	if (iscsi_cache) {
 		spin_lock_irq(&iscsi_cache->tree_lock);
 		radix_tree_delete(&iscsi_cache->page_tree,
 				iscsi_page->index);
@@ -421,6 +415,9 @@ static int cache_test_set_page_writeback(struct iscsi_cache_page *iscsi_page)
 
 }
 
+/*
+* clear WB flag of page, called after data is written to disk.
+*/
 void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page)
 {
 	if (!cache_test_clear_page_writeback(iscsi_page))
@@ -457,9 +454,9 @@ static void cache_mpage_endio(struct bio *bio, int err)
 			//unlock_page(page);
 		} else { /* WRITE */
 			if (!uptodate)
-				cache_err("Error when submit to block device.\n");
+				cache_err("Error when submit to block device\n");
 			
-			cache_dbg("WRITEBACK one page. Index is %llu", 
+			cache_dbg("WRITEBACK one page. Index is %llu\n", 
 				(unsigned long long)iscsi_page->index);
 			if(!PageActive(iscsi_page->page))
 				list_add(&iscsi_page->list,&list_inactive);
@@ -568,7 +565,10 @@ confused:
 	goto out;
 }
 
-/* return nr of wrote pages */
+/*
+* multi-pages are merged to one submit, to imrove efficiency
+* return nr of wrote pages 
+*/
 int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writeback_control *wbc,
 			struct cache_mpage_data *mpd)
 {
@@ -654,7 +654,6 @@ continue_unlock:
 			}
 			BUG_ON(PageWriteback(iscsi_page->page));
 			cache_test_set_page_writeback(iscsi_page);
-			iscsi_page->dirty_bitmap = 0x00;
 			unlock_page(iscsi_page->page);
 			
 			err = cache_do_writepage(iscsi_page, wbc, mpd, tio_work);
@@ -710,9 +709,11 @@ error:
 }
 
 
-/**
-* FIXME periodically kupdate don't support oldest pages writeback now. 
-* 	return nr of wrote pages 
+/*
+* writeback the dirty pages of one volume, return nr of wrote pages.
+*
+* FIXME 
+* periodically kupdate don't support oldest pages writeback now. 
 */
 int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigned long pages_to_write)
 {

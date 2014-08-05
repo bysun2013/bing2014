@@ -4,8 +4,8 @@
  * Released under the terms of the GNU GPL v2.0.
  */
 
-#ifndef CACHE_ISCSI_WB_H
-#define CACHE_ISCSI_WB_H
+#ifndef CACHE_WB_H
+#define CACHE_WB_H
 
 #include "cache.h"
 

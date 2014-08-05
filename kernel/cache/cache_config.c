@@ -98,19 +98,6 @@ static int ip_set(unsigned long ptr)
 
 }
 
-static int port_set(unsigned long ptr)
-{
-	int port;
-
-	int err;
-
-	err = copy_from_user(&port, (void *) ptr, sizeof(port));
-	if (err)
-		return -EFAULT;
-
-	return 0;
-
-}
 /* manual flush all data of volume */
 static int lun_update(unsigned long ptr)
 {
@@ -229,10 +216,7 @@ static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case CACHE_IP_SET:
 		err = ip_set(arg);
-		break;	
-	case CACHE_PORT_SET:
-		//err = port_set(arg);
-		break;			
+		break;		
 	case CACHE_LUN_UPD:
 		err = lun_update(arg);
 		break;
