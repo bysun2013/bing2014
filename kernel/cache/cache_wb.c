@@ -202,7 +202,7 @@ int cache_writeback_thread(void *data)
 		del_timer(&iscsi_cache->wakeup_timer);
 
 		pages_written = cache_do_writeback(iscsi_cache);
-
+		
 		if (pages_written)
 			iscsi_cache->last_active = jiffies;
 

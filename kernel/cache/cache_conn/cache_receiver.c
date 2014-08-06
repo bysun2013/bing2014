@@ -203,7 +203,7 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 	struct p_block_wrote *p = pi->data;
 	unsigned int size = pi->size;
 	int count = size/sizeof(pgoff_t);
-	pgoff_t data[PVEC_SIZE];
+	pgoff_t data[PVEC_SIZE];  /* this maybe wrong */
 	pgoff_t *pages_index;
 	u32 peer_seq = be32_to_cpu(p->seq_num);
 	int err, i;

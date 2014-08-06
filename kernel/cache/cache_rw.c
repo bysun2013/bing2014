@@ -315,7 +315,6 @@ static unsigned iscsi_find_get_pages_tag(struct iscsi_cache *iscsi_cache, pgoff_
 	unsigned int ret;
 	unsigned int nr_found;
 
-	rcu_read_lock();
 restart:
 	nr_found = radix_tree_gang_lookup_tag_slot(&iscsi_cache->page_tree,
 				(void ***)pages, *index, nr_pages, tag);
@@ -369,6 +368,93 @@ static void iscsi_delete_page(struct iscsi_cache_page *iscsi_page)
 		iscsi_page->iscsi_cache = NULL;
 		spin_unlock_irq(&iscsi_cache->tree_lock);
 	}
+}
+
+static unsigned iscsi_find_get_pages(struct iscsi_cache *iscsi_cache, pgoff_t *index,
+			unsigned int nr_pages, struct iscsi_cache_page **pages)
+{
+	unsigned int i;
+	unsigned int ret;
+	unsigned int nr_found;
+
+	rcu_read_lock();
+restart:
+	nr_found = radix_tree_gang_lookup_slot(&iscsi_cache->page_tree,
+				(void ***)pages, NULL, *index, nr_pages);
+	ret = 0;
+	for (i = 0; i < nr_found; i++) {
+		struct iscsi_cache_page *page;
+repeat:
+		page = radix_tree_deref_slot((void **)pages[i]);
+		if (unlikely(!page))
+			continue;
+
+		/*
+		 * This can only trigger when the entry at index 0 moves out
+		 * of or back to the root: none yet gotten, safe to restart.
+		 */
+		if (radix_tree_deref_retry(page))
+			goto restart;
+
+		/* Has the page moved? */
+		if (unlikely(page != *((void **)pages[i]))) {
+			goto repeat;
+		}
+
+		pages[ret] = page;
+		ret++;
+	}
+
+	/*
+	 * If all entries were removed before we could secure them,
+	 * try again, because callers stop trying once 0 is returned.
+	 */
+	if (unlikely(!ret && nr_found))
+		goto restart;
+	
+	rcu_read_unlock();
+	
+	if (ret)
+		*index = pages[ret - 1]->index + 1;
+	
+	return ret;
+}
+
+#define MAX_SIZE 64
+/*
+* called when delete one volume, to destroy radix tree
+*/
+void iscsi_delete_radix_tree(struct iscsi_cache *iscsi_cache)
+{
+	struct iscsi_cache_page *pages[MAX_SIZE];
+	pgoff_t index=0;
+	pgoff_t end= ULONG_MAX;
+	unsigned long  nr_pages;
+
+	if(!iscsi_cache)
+		return;
+	
+	while (true) {
+		int i;
+
+		nr_pages = iscsi_find_get_pages(iscsi_cache, &index,
+			      min(end - index, (pgoff_t)MAX_SIZE-1) + 1, pages);
+		if (nr_pages == 0)
+			break;
+
+		for (i = 0; i < nr_pages; i++) {
+			struct iscsi_cache_page *iscsi_page = pages[i];
+
+			lock_page(iscsi_page->page);
+			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
+				unlock_page(iscsi_page->page); 
+				continue;
+			}
+			iscsi_delete_page(iscsi_page);
+			unlock_page(iscsi_page->page);
+		}
+	}
+	cache_dbg("OK, radix tree of %s is deleted.\n", iscsi_cache->path);
 }
 
 static int cache_test_clear_page_writeback(struct iscsi_cache_page *iscsi_page)
@@ -521,12 +607,6 @@ static int cache_do_writepage(struct iscsi_cache_page *iscsi_page,
 	struct iscsi_cache *iscsi_cache = iscsi_page->iscsi_cache;
 	struct block_device * bdev = iscsi_cache->bdev;
 
-	/* I believe the minimal block should be 4KB, so ignore it. */ 
-/*	if ((iscsi_page->dirty_bitmap & 0xff) != 0xff){
-		cache_err("This page is not 0xff.\n");
-		goto confused;
-	}
-*/
 	if (bio && (mpd->last_page_in_bio != iscsi_page->index -1))
 		bio = cache_mpage_bio_submit(bio, WRITE);
 
@@ -557,6 +637,7 @@ confused:
 	if (bio)
 		bio = cache_mpage_bio_submit(bio, WRITE);
 
+	/* I believe the minimal block should be 4KB */ 
 	err = cache_rw_page(iscsi_page, WRITE);
 	if (unlikely(err)) {
 		cache_err("Error when writeback blocks to device.\n");
@@ -581,7 +662,7 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 	struct iscsi_cache_page *pages[PVEC_SIZE];
 	pgoff_t index=0;
 	pgoff_t end=wbc->range_end;
-	unsigned long  nr_pages = wbc->nr_to_write;
+	unsigned long  nr_pages;
 	int tag;
 
 	BUG_ON(!iscsi_cache->owner);
@@ -612,8 +693,9 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 
 		nr_pages = iscsi_find_get_pages_tag(iscsi_cache, &index, tag,
 			      min(end - index, (pgoff_t)PVEC_SIZE-1) + 1, pages);
-		if (nr_pages == 0)
+		if (nr_pages == 0){
 			break;
+		}
 		
 		blk_start_plug(&plug);
 
@@ -700,8 +782,9 @@ continue_unlock:
 //			pages[m]->dirty_bitmap=0x00;
 //			mutex_unlock(&pages[m]->write);
 //		}
-	
-		cond_resched();
+
+		/* set below threshold, to decrease pages to writeback */
+		
 	}	
 error:
 	kfree(tio_work);

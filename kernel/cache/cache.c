@@ -51,26 +51,6 @@ struct kmem_cache *cache_request_cache;
 struct list_head iscsi_cache_list;
 struct mutex iscsi_cache_list_lock;
 
-static int add_page_to_radix(struct iscsi_cache *iscsi_cache, struct iscsi_cache_page *page, gfp_t gfp_mask)
-{
-	int error;
-
-	error = radix_tree_preload(gfp_mask & ~__GFP_HIGHMEM);
-	if (error == 0) {
-		spin_lock_irq(&iscsi_cache->tree_lock);
-		error = radix_tree_insert(&iscsi_cache->page_tree, page->index, page);
-		spin_unlock_irq(&iscsi_cache->tree_lock);
-		
-		if (unlikely(error)) {
-			cache_dbg("something is wrong when add page to cache, it's perhaps not fault.\n");
-		}
-		radix_tree_preload_end();
-	}else
-		cache_err("Error occurs when preload cache!\n");
-	
-	return error;
-}
-
 static void del_page_from_radix(struct iscsi_cache_page *page)
 {
 	struct  iscsi_cache *iscsi_cache = page->iscsi_cache;
@@ -79,39 +59,6 @@ static void del_page_from_radix(struct iscsi_cache_page *page)
 	radix_tree_delete(&iscsi_cache->page_tree, page->index);
 	page->iscsi_cache = NULL;
 	spin_unlock_irq(&iscsi_cache->tree_lock);
-}
-
-/*
-* find the exact page pointer, or return NULL 
-*/
-static struct iscsi_cache_page *find_page_from_radix(struct iscsi_cache *iscsi_cache, sector_t index)
-{
-	
-	struct iscsi_cache_page * iscsi_page;
-	void **pagep;
-	
-	cond_resched();
-	
-	rcu_read_lock();
-repeat:
-	iscsi_page = NULL;
-	pagep = radix_tree_lookup_slot(&iscsi_cache->page_tree, index);
-	if (pagep) {
-		iscsi_page = radix_tree_deref_slot(pagep);
-		if (unlikely(!iscsi_page))
-			goto out;
-		if (radix_tree_deref_retry(iscsi_page))
-			goto repeat;
-		if (unlikely(iscsi_page != *pagep)) {
-			cache_warn("page has been moved.\n");
-			goto repeat;
-		}
-	}
-out:
-	rcu_read_unlock();
-
-	return iscsi_page;
-
 }
 
 static struct iscsi_cache_page* cache_get_free_page(struct iscsi_cache * iscsi_cache)
@@ -129,13 +76,13 @@ again:
 		}
 		return iscsi_page;
 	}else{
-		cache_err("Cache is used up! Wait for write back...\n");
+		cache_dbg("Cache is used up! Wait for write back...\n");
 		wake_up_process(iscsi_wb_forker);
 		if(iscsi_cache->owner)
 			writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 		else{
 			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(HZ/10);
+			schedule_timeout(HZ>>3);
 			__set_current_state(TASK_RUNNING);
 		}
 		goto again;
@@ -208,19 +155,50 @@ static int cache_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_p
 {
 	int error;
 
-	error = add_page_to_radix(iscsi_cache, iscsi_page, GFP_KERNEL);
-
+	error = radix_tree_preload(GFP_KERNEL & ~__GFP_HIGHMEM);
+	if (error == 0) {
+		spin_lock_irq(&iscsi_cache->tree_lock);
+		error = radix_tree_insert(&iscsi_cache->page_tree, iscsi_page->index, iscsi_page);
+		spin_unlock_irq(&iscsi_cache->tree_lock);
+		
+		if (unlikely(error)) {
+			cache_dbg("something is wrong when add page to cache, it's perhaps not fault.\n");
+		}
+		radix_tree_preload_end();
+	}else
+		cache_err("Error occurs when preload cache!\n");
+	
 	return error;
 }
 
+/*
+* find the exact page pointer, or return NULL 
+*/
 static struct iscsi_cache_page* cache_find_get_page(struct iscsi_cache *iscsi_cache, pgoff_t index)
 {
-
 	struct iscsi_cache_page * iscsi_page;
-
-	iscsi_page = find_page_from_radix(iscsi_cache, index);
+	void **pagep;
 	
+	rcu_read_lock();
+repeat:
+	iscsi_page = NULL;
+	pagep = radix_tree_lookup_slot(&iscsi_cache->page_tree, index);
+	if (pagep) {
+		iscsi_page = radix_tree_deref_slot(pagep);
+		if (unlikely(!iscsi_page))
+			goto out;
+		if (radix_tree_deref_retry(iscsi_page))
+			goto repeat;
+		if (unlikely(iscsi_page != *pagep)) {
+			cache_warn("page has been moved.\n");
+			goto repeat;
+		}
+	}
+out:
+	rcu_read_unlock();
+
 	return iscsi_page;
+
 }
 
 /* Lock strategy is not good, used to sync dirty pages. */
@@ -228,7 +206,7 @@ int cache_clean_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 {
 	struct iscsi_cache_page *iscsi_page;
 again:
-	iscsi_page = find_page_from_radix(iscsi_cache, index);
+	iscsi_page = cache_find_get_page(iscsi_cache, index);
 	if(!iscsi_page){
 		cache_dbg("Write out one page, not found, index = %ld\n", index);
 		return 0;
@@ -268,7 +246,7 @@ static unsigned char get_bitmap(sector_t lba_off, u32 num)
 }
 
 static int _iscsi_read_from_cache(void *iscsi_cachep, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
+		unsigned char bitmap, unsigned int current_bytes, unsigned int skip_blk)
 {
 	struct iscsi_cache * iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
 	struct iscsi_cache_page *iet_page;
@@ -287,7 +265,7 @@ again:
 		}
 		/* if data to read is invalid, read from disk */
 		if(unlikely((iet_page->valid_bitmap & bitmap) != bitmap)) {
-			cache_dbg("data to read is invalid, Read from disk\n");
+			cache_dbg("data to read is invalid, try to read from disk\n");
 			
 			err=cache_check_read_blocks(iet_page, iet_page->valid_bitmap, bitmap);
 			if(unlikely(err)){
@@ -338,7 +316,7 @@ again:
 }
 
 static int  _iscsi_write_into_cache(void *iscsi_cachep, pgoff_t page_index, struct page* page, 
-		char bitmap, unsigned int current_bytes, unsigned int skip_blk)
+		unsigned char bitmap, unsigned int current_bytes, unsigned int skip_blk)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
 	struct iscsi_cache_page *iet_page;
@@ -384,8 +362,6 @@ again:
 		
 		if(iscsi_cache->owner && over_bground_thresh(iscsi_cache))
 			wakeup_cache_flusher(iscsi_cache);
-		
-		cache_dbg("WRITE MISS\n");
 	}else{		/* Write Hit */
 
 		lock_page(iet_page->page);
@@ -413,7 +389,6 @@ again:
 
 		lru_write_hit_handle(iet_page);
 		unlock_page(iet_page->page);
-		cache_dbg("WRITE HIT\n");
 	}
 	return err;
 }
@@ -425,7 +400,7 @@ static int _iscsi_read_cache(void *iscsi_cachep, struct page **pages,
 	u32 tio_index = 0;
 	u32 sector_num;
 	int err = 0;
-	char bitmap;
+	unsigned char bitmap;
 
 	sector_t lba, alba, lba_off;
 	pgoff_t page_index;
@@ -443,9 +418,6 @@ static int _iscsi_read_cache(void *iscsi_cachep, struct page **pages,
 				page_index = lba>>SECTORS_ONE_PAGE_SHIFT;
 				alba = page_index<<SECTORS_ONE_PAGE_SHIFT;
 				lba_off = lba-alba;
-				
-				cache_dbg("READ ppos=%lld, LBA=%lu, page num=%lu\n", 
-					ppos, lba, (unsigned long)page_index);
 				
 				current_bytes = PAGE_SIZE-(lba_off<<SECTOR_SHIFT);
 				if(current_bytes>bytes)
@@ -475,7 +447,7 @@ static int _iscsi_write_cache(void *iscsi_cachep, struct page **pages,
 	u32 tio_index = 0;
 	u32 sector_num;
 	int err = 0;
-	char bitmap;
+	unsigned char bitmap;
 	u32 real_size = size, real_ppos = ppos;
 	sector_t lba, alba, lba_off;
 	pgoff_t page_index;
@@ -493,9 +465,6 @@ static int _iscsi_write_cache(void *iscsi_cachep, struct page **pages,
 				page_index=lba>>SECTORS_ONE_PAGE_SHIFT;
 				alba=page_index<<SECTORS_ONE_PAGE_SHIFT;
 				lba_off=lba-alba;
-				
-				cache_dbg("WRITE ppos=%lld, LBA=%lu, page num=%lu\n", 
-					ppos, lba, (unsigned long)page_index);
 				
 				current_bytes=PAGE_SIZE-(lba_off<<SECTOR_SHIFT);
 				if(current_bytes>bytes)
@@ -532,7 +501,7 @@ static int _iscsi_write_cache(void *iscsi_cachep, struct page **pages,
 int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
 {
 	int err;
-	
+
 	err = _iscsi_read_cache(iscsi_cachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
 
 	return err;
@@ -541,7 +510,7 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
 {
 	int err;
-	
+
 	err = _iscsi_write_cache(iscsi_cachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
 
 	return err;
@@ -634,9 +603,11 @@ void del_iscsi_cache(void *iscsi_cachep)
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
 
 	//cache_conn_exit(iscsi_cache);
-
+	
+	iscsi_delete_radix_tree(iscsi_cache);
+	
 	blkdev_put(iscsi_cache->bdev, (FMODE_READ |FMODE_WRITE));
-	cache_dbg("Good, release block device %s.\n", iscsi_cache->path);
+	cache_dbg("OK, block device %s is released.\n", iscsi_cache->path);
 
 	iscsi_cache_total_volume--;
 
@@ -690,7 +661,7 @@ static int iscsi_global_cache_init(void)
 
 	cache_info("iSCSI Cache Module  version %s \n", CACHE_VERSION);
 	cache_info("reserved_virt_addr = 0x%lx reserved_phys_addr = 0x%lx size=%dMB \n", 
-		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size/1024/1024));
+		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size>>20));
 	
 	cache_dbg("The size of struct iscsi_cache_page is %d.\n", iscsi_struct_size);
 

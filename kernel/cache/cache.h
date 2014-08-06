@@ -32,9 +32,12 @@ extern unsigned long iscsi_cache_total_pages;
 extern unsigned int iscsi_cache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
-#define PVEC_SIZE		16
+#define PVEC_SIZE		64
 #define ADDR_LEN 		16
 #define PATH_LEN 		32
+
+#define PVEC_NORMAL_SIZE		16
+#define PVEC_MAX_SIZE           512
 
 enum request_from{
 	REQUEST_FROM_PEER = 0,
@@ -79,7 +82,6 @@ struct iscsi_cache{
 
 	char inet_addr[ADDR_LEN];
 	char inet_peer_addr[ADDR_LEN];
-
 	int port;
 	
 	struct block_device *bdev;
@@ -93,13 +95,10 @@ struct iscsi_cache{
 
 	/* Writeback */
 	unsigned long state;	/* Always use atomic bitops on this */
-	
 	unsigned long last_old_flush;	/* last old data flush */
 	unsigned long last_active;	/* last time wb thread was active */
-
 	atomic_t dirty_pages;	/* should be atomic */
 	atomic_t total_pages;
-	
 	struct task_struct *task;	/* writeback thread */
 	struct completion wb_completion; /* wait for writeback thread exit */
 	struct timer_list wakeup_timer; /* used for delayed thread wakeup */
@@ -124,6 +123,7 @@ int cache_write_page_blocks(struct iscsi_cache_page *iet_page);
 int cache_check_read_blocks(struct iscsi_cache_page *iet_page, 
 	unsigned char valid, unsigned char read);
 int cache_rw_page(struct iscsi_cache_page *iet_page, int rw);
+void iscsi_delete_radix_tree(struct iscsi_cache *iscsi_cache);
 
 /* cache_config.c */
 extern int machine_type;

@@ -253,7 +253,7 @@ void lru_mark_page_accessed(struct iscsi_cache_page *cache_page,int move)
 	else{
 		if(!PageActive(cache_page->page)){
 			if(move){
-				cache_dbg("lru mark need to move to active\n");
+				//cache_dbg("lru mark need to move to active\n");
 				move_page_to_active(cache_page);
 			}
 			ClearPageReferenced(cache_page->page);

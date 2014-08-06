@@ -46,13 +46,13 @@
 	} while (0)
 
 #else
-#define dprintk_detail(level, fmt, args...)
+#define dprintk_detail(level, fmt, args...)	
 #define dprintk(level, fmt, args...)
 #endif
 
 
 #define cache_dbg(fmt, args...) \
-	dprintk(KERN_ALERT, fmt, ##args)
+	dprintk(KERN_DEBUG, fmt, ##args)
 #define cache_info(fmt, args...) \
 	eprintk(KERN_INFO, fmt, ##args)
 #define cache_warn(fmt, args...) \
