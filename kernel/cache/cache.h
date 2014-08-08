@@ -32,10 +32,11 @@ extern unsigned long iscsi_cache_total_pages;
 extern unsigned int iscsi_cache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
-#define PVEC_SIZE		64
+#define PVEC_SIZE		512
 #define ADDR_LEN 		16
 #define PATH_LEN 		32
 
+/* dynamic writeback, to improve performance */
 #define PVEC_NORMAL_SIZE		16
 #define PVEC_MAX_SIZE           512
 

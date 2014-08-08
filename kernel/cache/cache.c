@@ -79,7 +79,7 @@ again:
 		cache_dbg("Cache is used up! Wait for write back...\n");
 		wake_up_process(iscsi_wb_forker);
 		if(iscsi_cache->owner)
-			writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+			writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 256);
 		else{
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ>>3);
@@ -263,18 +263,11 @@ again:
 			unlock_page(iet_page->page);
 			goto again;
 		}
-		/* if data to read is invalid, read from disk */
-		if(unlikely((iet_page->valid_bitmap & bitmap) != bitmap)) {
-			cache_dbg("data to read is invalid, try to read from disk\n");
-			
-			err=cache_check_read_blocks(iet_page, iet_page->valid_bitmap, bitmap);
-			if(unlikely(err)){
-				cache_err("Error occurs when read missed blocks.\n");
-				unlock_page(iet_page->page);
-				return err;
-			}
-			iet_page->valid_bitmap = iet_page->valid_bitmap | bitmap;
-		}
+		
+		/**
+		* if data to read is invalid, should read from disk, it only happen 
+		* when block size is 512, which is little possible.
+		*/
 		
 		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
 
@@ -502,6 +495,7 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 {
 	int err;
 
+	cache_dbg("the size of request of read is %d\n", size);
 	err = _iscsi_read_cache(iscsi_cachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
 
 	return err;
@@ -510,7 +504,8 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
 {
 	int err;
-
+	
+	cache_dbg("the size of request of write is %d\n", size);
 	err = _iscsi_write_cache(iscsi_cachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
 
 	return err;

@@ -529,6 +529,8 @@ static void cache_mpage_endio(struct bio *bio, int err)
 	if (err)
 		atomic_set(&tio_work->error, err);
 	
+	cache_dbg("---This bio includes %d pages.\n", bio->bi_vcnt);
+	
 	do {
 		struct page *page = bvec->bv_page;
 		struct iscsi_cache_page *iscsi_page = (struct iscsi_cache_page *)page->mapping;
@@ -536,27 +538,23 @@ static void cache_mpage_endio(struct bio *bio, int err)
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
 		
-		if (bio_data_dir(bio) == READ) {
-			//unlock_page(page);
-		} else { /* WRITE */
-			if (!uptodate)
-				cache_err("Error when submit to block device\n");
-			
-			cache_dbg("WRITEBACK one page. Index is %llu\n", 
-				(unsigned long long)iscsi_page->index);
-			if(!PageActive(iscsi_page->page))
-				list_add(&iscsi_page->list,&list_inactive);
-			else
-				list_add(&iscsi_page->list,&list_active);
-			iscsi_page->site = temp;
-			//cache_end_page_writeback(iscsi_page);
-		}
+		if (!uptodate)
+			cache_err("Error when submit to block device\n");
+		
+		cache_dbg("WRITEBACK one page. Index is %llu\n", 
+			(unsigned long long)iscsi_page->index);
+		if(!PageActive(iscsi_page->page))
+			list_add(&iscsi_page->list,&list_inactive);
+		else
+			list_add(&iscsi_page->list,&list_active);
+		iscsi_page->site = temp;
+		//cache_end_page_writeback(iscsi_page);
 	} while (bvec >= bio->bi_io_vec);
+	
 	inactive_writeback_add_list(&list_inactive);
 	active_writeback_add_list(&list_active);
-	
-	if (bio_data_dir(bio) == WRITE)
-		cache_dbg("This bio includes %d pages.\n", bio->bi_vcnt);
+
+	cache_dbg("---This bio is over, includes %d pages.\n", bio->bi_vcnt);
 	
 	/* If last bio signal completion */
 	if (atomic_dec_and_test(&tio_work->bios_remaining))
@@ -585,17 +583,25 @@ static struct bio * cache_mpage_alloc(struct block_device *bdev,
 	return bio;
 }
 
-struct bio *cache_mpage_bio_submit(struct bio *bio, int rw)
-{
-	bio->bi_end_io = cache_mpage_endio;
-	submit_bio(rw, bio);
-	return NULL;
-}
-
 struct cache_mpage_data {
 	struct bio *bio;
 	unsigned long last_page_in_bio;
+	 /* list all bio which are not submited */
+	struct bio *bio_list;
+	struct bio *bio_tail;
 };
+
+struct bio *cache_mpage_bio_submit(struct cache_mpage_data *mpd, struct bio *bio, int rw)
+{
+	bio->bi_end_io = cache_mpage_endio;
+	
+	if (mpd->bio_list)
+		mpd->bio_tail = (mpd->bio_tail)->bi_next = bio;
+	else
+		mpd->bio_list = mpd->bio_tail = bio;
+	
+	return NULL;
+}
 
 static int cache_do_writepage(struct iscsi_cache_page *iscsi_page, 
 	struct cache_writeback_control *wbc, struct cache_mpage_data *mpd, struct tio_work *tio_work)
@@ -608,7 +614,7 @@ static int cache_do_writepage(struct iscsi_cache_page *iscsi_page,
 	struct block_device * bdev = iscsi_cache->bdev;
 
 	if (bio && (mpd->last_page_in_bio != iscsi_page->index -1))
-		bio = cache_mpage_bio_submit(bio, WRITE);
+		bio = cache_mpage_bio_submit(mpd, bio, WRITE);
 
 alloc_new:
 	if (bio == NULL) {
@@ -624,26 +630,26 @@ alloc_new:
 
 	if (bio_add_page(bio, iscsi_page->page, length, 0) < length) {
 		cache_dbg("bio maybe it's full: %d pages.\n", bio->bi_vcnt);
-		bio = cache_mpage_bio_submit(bio, WRITE);
+		bio = cache_mpage_bio_submit(mpd, bio, WRITE);
 		goto alloc_new;
 	}
 	
 	mpd->last_page_in_bio = iscsi_page->index;
-out:
 	mpd->bio = bio;
 	return err;
 	
 confused:
 	if (bio)
-		bio = cache_mpage_bio_submit(bio, WRITE);
+		bio = cache_mpage_bio_submit(mpd, bio, WRITE);
 
 	/* I believe the minimal block should be 4KB */ 
 	err = cache_rw_page(iscsi_page, WRITE);
 	if (unlikely(err)) {
 		cache_err("Error when writeback blocks to device.\n");
 	}
-
-	goto out;
+	
+	mpd->bio = bio;
+	return err;
 }
 
 /*
@@ -659,11 +665,13 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 	/* used for cache sync, only support page size now */
 //	pgoff_t wb_index[PVEC_SIZE];
 	struct tio_work *tio_work;
-	struct iscsi_cache_page *pages[PVEC_SIZE];
+	struct iscsi_cache_page *pages[PVEC_MAX_SIZE];
 	pgoff_t index=0;
 	pgoff_t end=wbc->range_end;
 	unsigned long  nr_pages;
 	int tag;
+	unsigned long wr_pages;
+	bool is_seq;
 
 	BUG_ON(!iscsi_cache->owner);
 
@@ -685,6 +693,7 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 	while (!done && (index <= end)) {
 		int i;
 //		int wrote_index = 0;
+		struct bio *bio;
 		struct blk_plug plug;
 
 		atomic_set(&tio_work->error, 0);
@@ -692,12 +701,11 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 		init_completion(&tio_work->tio_complete);
 
 		nr_pages = iscsi_find_get_pages_tag(iscsi_cache, &index, tag,
-			      min(end - index, (pgoff_t)PVEC_SIZE-1) + 1, pages);
-		if (nr_pages == 0){
+			      min(end - index, (pgoff_t)PVEC_MAX_SIZE-1) + 1, pages);
+		if (nr_pages == 0)
 			break;
-		}
 		
-		blk_start_plug(&plug);
+		wr_pages = 0;
 
 		for (i = 0; i < nr_pages; i++) {
 			
@@ -737,6 +745,11 @@ continue_unlock:
 			BUG_ON(PageWriteback(iscsi_page->page));
 			cache_test_set_page_writeback(iscsi_page);
 			unlock_page(iscsi_page->page);
+
+			if(!mpd->bio)
+				is_seq = 0;
+			else
+				is_seq = (mpd->last_page_in_bio == iscsi_page->index -1 ? 1 : 0);
 			
 			err = cache_do_writepage(iscsi_page, wbc, mpd, tio_work);
 			
@@ -757,10 +770,47 @@ continue_unlock:
 				done=1;
 				break;
 			}
+			
+			++wr_pages;
+			if(!is_seq && (wr_pages > PVEC_NORMAL_SIZE)){		
+				/* writeback all bio, not include current bio */
+				if(likely(mpd->bio))
+					atomic_dec(&tio_work->bios_remaining);
+				
+				blk_start_plug(&plug);
+				while (mpd->bio_list) {
+					bio = mpd->bio_list;
+					mpd->bio_list = mpd->bio_list->bi_next;
+					bio->bi_next = NULL;
+
+					submit_bio(WRITE, bio);
+				}
+				blk_finish_plug(&plug);
+				
+				if(atomic_read(&tio_work->bios_remaining))
+					wait_for_completion(&tio_work->tio_complete);
+
+				wr_pages = 0;
+				atomic_set(&tio_work->error, 0);
+				atomic_set(&tio_work->bios_remaining, 0);
+				init_completion(&tio_work->tio_complete);
+				if(likely(mpd->bio)){
+					atomic_inc(&tio_work->bios_remaining);
+					wr_pages++;
+				}
+			}
 		}
 		if (mpd->bio)
-			mpd->bio = cache_mpage_bio_submit(mpd->bio, WRITE);
-		
+			mpd->bio = cache_mpage_bio_submit(mpd, mpd->bio, WRITE);
+
+		blk_start_plug(&plug);
+		while (mpd->bio_list) {
+			bio = mpd->bio_list;
+			mpd->bio_list = mpd->bio_list->bi_next;
+			bio->bi_next = NULL;
+
+			submit_bio(WRITE, bio);
+		}
 		blk_finish_plug(&plug);
 
 		if(atomic_read(&tio_work->bios_remaining))
@@ -811,6 +861,8 @@ int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigne
 	
 	struct cache_mpage_data mpd = {
 		.bio = NULL,
+		.bio_tail = NULL,
+		.bio_list = NULL,
 		.last_page_in_bio = 0,
 	};
 	

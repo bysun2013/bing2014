@@ -192,13 +192,13 @@ void check_list_status(void)
  */
 void inactive_add_page(struct iscsi_cache_page *cache_page)
 {
-	lru_page_add(&cache_page->list,&inactive_list,&inactive_lock);
+	lru_page_add(&cache_page->list, &inactive_list, &inactive_lock);
 	cache_page->site = inactive;
 	atomic_inc(&inactive_list_length);
 }
 void active_add_page(struct iscsi_cache_page *cache_page)
 {
-	lru_page_add(&cache_page->list,&active_list,&active_lock);
+	lru_page_add(&cache_page->list, &active_list, &active_lock);
 	cache_page->site = active;
 	atomic_inc(&active_list_length);
 }
@@ -213,7 +213,7 @@ void lru_add_page(struct iscsi_cache_page *cache_page)
 
 void lru_set_page_back(struct iscsi_cache_page *cache_page)
 {
-	lru_page_add_tail(&cache_page->list,&inactive_list,&inactive_lock);
+	lru_page_add_tail(&cache_page->list, &inactive_list, &inactive_lock);
 	cache_page->site = inactive;
 	atomic_inc(&inactive_list_length);
 }
@@ -278,18 +278,15 @@ void lru_read_hit_handle(struct iscsi_cache_page *cache_page)
 		/* page need to move from inactive to active */
 		if(!PageActive(cache_page->page) && PageReferenced(cache_page->page)){
 			cache_dbg("move a writeback page from inactive to active");
-			wait_on_page_writeback(cache_page->page);
-			lru_mark_page_accessed(cache_page,1);
-		}
-		else{
-			lru_mark_page_accessed(cache_page,0);
+		}else{
+			lru_mark_page_accessed(cache_page, 0);
 		}
 	}
 	else{
 		if(cache_page->site == inactive)
-			lru_mark_page_accessed(cache_page,1);
+			lru_mark_page_accessed(cache_page, 1);
 		else
-			lru_mark_page_accessed(cache_page,0);
+			lru_mark_page_accessed(cache_page, 0);
 	}
 }
 
@@ -327,7 +324,7 @@ void lru_writeback_add_list(struct list_head *list,struct list_head *lru,
 	last = list->prev;
 	spin_lock_irq(lock);
 	list_connect(lru,list);
-	while(first !=(last->next)){
+	while(first != last->next){
 		cache_page = list_entry(first,struct iscsi_cache_page,list);
 		cache_page->site = site;
 		cache_page->dirty_bitmap = 0x00;
