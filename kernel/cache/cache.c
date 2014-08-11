@@ -179,6 +179,8 @@ static struct iscsi_cache_page* cache_find_get_page(struct iscsi_cache *iscsi_ca
 	struct iscsi_cache_page * iscsi_page;
 	void **pagep;
 	
+	cond_resched();
+
 	rcu_read_lock();
 repeat:
 	iscsi_page = NULL;
@@ -241,71 +243,8 @@ static unsigned char get_bitmap(sector_t lba_off, u32 num)
 	a = 0xff << lba_off;
 	b = 0xff >>(SECTORS_ONE_PAGE-(lba_off + num));
 	bitmap = (a & b);
+
 	return bitmap;
-
-}
-
-static int _iscsi_read_from_cache(void *iscsi_cachep, pgoff_t page_index, struct page* page, 
-		unsigned char bitmap, unsigned int current_bytes, unsigned int skip_blk)
-{
-	struct iscsi_cache * iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
-	struct iscsi_cache_page *iet_page;
-	int err=0;
-	
-again:
-	iet_page= cache_find_get_page(iscsi_cache, page_index);
-
-	if(iet_page) {	/* Read Hit */
-		lock_page(iet_page->page);
-		
-		if(iet_page->iscsi_cache !=iscsi_cache || iet_page->index != page_index) {
-			cache_dbg("read page have been changed.\n");
-			unlock_page(iet_page->page);
-			goto again;
-		}
-		
-		/**
-		* if data to read is invalid, should read from disk, it only happen 
-		* when block size is 512, which is little possible.
-		*/
-		
-		copy_cache_to_tio(iet_page, page, bitmap, skip_blk, current_bytes);
-
-		lru_read_hit_handle(iet_page);
-		unlock_page(iet_page->page);
-	}else{	/* Read Miss, no page */
-		iet_page=cache_get_free_page(iscsi_cache);
-		
-		iet_page->iscsi_cache=iscsi_cache;
-		iet_page->index=page_index;
-
-		err=cache_add_page(iscsi_cache, iet_page);
-		if(unlikely(err)){
-			if(err==-EEXIST){
-				cache_dbg("This page exists, try again!\n");
-				iet_page->iscsi_cache= NULL;
-				iet_page->index= -1;
-				lru_set_page_back(iet_page);
-				unlock_page(iet_page->page);
-				goto again;
-			}
-			lru_set_page_back(iet_page);
-			cache_err("Error occurs when read, but reason is not clear.\n");
-			unlock_page(iet_page->page);
-			return err;
-		}
-
-		cache_rw_page(iet_page, READ);
-		
-		copy_cache_to_tio(iet_page, page,  bitmap, skip_blk, current_bytes);
-		iet_page->valid_bitmap =0xff;
-		
-		lru_read_miss_handle(iet_page);
-		unlock_page(iet_page->page);
-		
-		atomic_inc(&iscsi_cache->total_pages);
-	}
-	return err;
 }
 
 static int  _iscsi_write_into_cache(void *iscsi_cachep, pgoff_t page_index, struct page* page, 
@@ -386,20 +325,78 @@ again:
 	return err;
 }
 
+/**
+* according to size of request, read all the data one time
+*/
 static int _iscsi_read_cache(void *iscsi_cachep, struct page **pages, 
 	u32 pg_cnt, u32 size, loff_t ppos, enum request_from from)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
-	u32 tio_index = 0;
+	struct iscsi_cache_page *iet_page;
+	int page_to_read = 0;
 	u32 sector_num;
-	int err = 0;
+	u32 tio_index = 0;
+	int err = 0, index;
 	unsigned char bitmap;
 
 	sector_t lba, alba, lba_off;
-	pgoff_t page_index;
+	pgoff_t page_start, page_end;
+	struct iscsi_cache_page **iscsi_pages;
+
+	BUG_ON(ppos % SECTOR_SIZE != 0);
+	
+	page_start = ppos >> PAGE_SHIFT;
+	page_end =  (ppos +size -1) >> PAGE_SHIFT;
+	
+	iscsi_pages = kzalloc((page_end - page_start + 1) * sizeof(struct iscsi_cache_page *), GFP_KERNEL);
+	
+	for(index = page_start; index<= page_end; index++) {
+again:
+		iet_page= cache_find_get_page(iscsi_cache, index);
+
+		if(iet_page) {	/* Read Hit */
+			lock_page(iet_page->page);
+			
+			if(iet_page->iscsi_cache != iscsi_cache || iet_page->index != index) {
+				cache_dbg("read page have been changed.\n");
+				unlock_page(iet_page->page);
+				goto again;
+			}
+			lru_read_hit_handle(iet_page);
+		}else{	/* Read Miss */
+			iet_page=cache_get_free_page(iscsi_cache);
+			
+			iet_page->iscsi_cache=iscsi_cache;
+			iet_page->index=index;
+
+			err=cache_add_page(iscsi_cache, iet_page);
+			if(unlikely(err)){
+				if(err==-EEXIST){
+					cache_dbg("This page exists, try again!\n");
+					iet_page->iscsi_cache= NULL;
+					iet_page->index= -1;
+					lru_set_page_back(iet_page);
+					unlock_page(iet_page->page);
+					goto again;
+				}
+				lru_set_page_back(iet_page);
+				cache_err("Error occurs when read miss, err = %d\n", err);
+				unlock_page(iet_page->page);
+				kfree(iscsi_pages);
+				return err;
+			}
+			lru_read_miss_handle(iet_page);
+			atomic_inc(&iscsi_cache->total_pages);
+			
+			iscsi_pages[page_to_read++] = iet_page;
+		}
+	}
+
+	cache_read_mpage(iscsi_cache, iscsi_pages, page_to_read);
 
 	/* Main processing loop */
 	while (size && tio_index < pg_cnt) {
+			pgoff_t page_index;
 			unsigned int current_bytes, bytes = PAGE_SIZE;
 			unsigned int  skip_blk = 0;
 
@@ -417,9 +414,11 @@ static int _iscsi_read_cache(void *iscsi_cachep, struct page **pages,
 					current_bytes=bytes;
 				sector_num = current_bytes>>SECTOR_SHIFT;
 				bitmap = get_bitmap(lba_off, sector_num);
-
-				_iscsi_read_from_cache(iscsi_cache, page_index, pages[tio_index],
-					bitmap, current_bytes, skip_blk);
+				
+				iet_page= cache_find_get_page(iscsi_cache, page_index);
+				BUG_ON(iet_page == NULL);
+				copy_cache_to_tio(iet_page, pages[tio_index], bitmap, skip_blk, current_bytes);
+				unlock_page(iet_page->page);
 				
 				bytes -= current_bytes;
 				size -= current_bytes;
@@ -429,6 +428,9 @@ static int _iscsi_read_cache(void *iscsi_cachep, struct page **pages,
 			
 			tio_index++;
 	}
+
+	if(iscsi_pages)
+		kfree(iscsi_pages);
 	return err;
 }
 
@@ -511,7 +513,7 @@ int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 s
 	return err;
 }
 
-/*
+/**
 * it's called when add one volume
 */
 void* init_iscsi_cache(const char *path, int owner, int port)
@@ -574,7 +576,7 @@ void* init_iscsi_cache(const char *path, int owner, int port)
 	return (void *)iscsi_cache;
 }
 
-/* 
+/**
 * It's called when delete one volume
 *
 * FIXME 

@@ -175,7 +175,6 @@ out:
 	return err;
 }
 
-
 static int _cache_rw_page_blocks(struct iscsi_cache_page *iet_page, unsigned char bitmap, int rw)
 {
 	unsigned int i=0, start=0, last=1, sizes=0;
@@ -272,18 +271,6 @@ void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
 	if (iscsi_cache) {	/* Race with truncate? */
 		spin_lock_irq(&iscsi_cache->tree_lock);
 		radix_tree_tag_set(&iscsi_cache->page_tree,
-				iscsi_page->index, tag);
-		spin_unlock_irq(&iscsi_cache->tree_lock);
-	}
-}
-
-static void iscsi_clear_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag)
-{
-	struct iscsi_cache *iscsi_cache=iscsi_page->iscsi_cache;
-	
-	if (iscsi_cache) {	/* Race with truncate? */
-		spin_lock_irq(&iscsi_cache->tree_lock);
-		radix_tree_tag_clear(&iscsi_cache->page_tree,
 				iscsi_page->index, tag);
 		spin_unlock_irq(&iscsi_cache->tree_lock);
 	}
@@ -420,13 +407,15 @@ repeat:
 	return ret;
 }
 
-#define MAX_SIZE 64
+
 /*
 * called when delete one volume, to destroy radix tree
 */
+#define DEL_MAX_SIZE 64
+
 void iscsi_delete_radix_tree(struct iscsi_cache *iscsi_cache)
 {
-	struct iscsi_cache_page *pages[MAX_SIZE];
+	struct iscsi_cache_page *pages[DEL_MAX_SIZE];
 	pgoff_t index=0;
 	pgoff_t end= ULONG_MAX;
 	unsigned long  nr_pages;
@@ -438,7 +427,7 @@ void iscsi_delete_radix_tree(struct iscsi_cache *iscsi_cache)
 		int i;
 
 		nr_pages = iscsi_find_get_pages(iscsi_cache, &index,
-			      min(end - index, (pgoff_t)MAX_SIZE-1) + 1, pages);
+			      min(end - index, (pgoff_t)DEL_MAX_SIZE-1) + 1, pages);
 		if (nr_pages == 0)
 			break;
 
@@ -529,8 +518,6 @@ static void cache_mpage_endio(struct bio *bio, int err)
 	if (err)
 		atomic_set(&tio_work->error, err);
 	
-	cache_dbg("---This bio includes %d pages.\n", bio->bi_vcnt);
-	
 	do {
 		struct page *page = bvec->bv_page;
 		struct iscsi_cache_page *iscsi_page = (struct iscsi_cache_page *)page->mapping;
@@ -538,23 +525,31 @@ static void cache_mpage_endio(struct bio *bio, int err)
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
 		
-		if (!uptodate)
-			cache_err("Error when submit to block device\n");
-		
-		cache_dbg("WRITEBACK one page. Index is %llu\n", 
-			(unsigned long long)iscsi_page->index);
-		if(!PageActive(iscsi_page->page))
-			list_add(&iscsi_page->list,&list_inactive);
-		else
-			list_add(&iscsi_page->list,&list_active);
-		iscsi_page->site = temp;
-		//cache_end_page_writeback(iscsi_page);
+		if (bio_data_dir(bio) == READ) {
+			iscsi_page->valid_bitmap = 0xff;
+			cache_dbg("READ one page. Index is %llu\n", 
+				(unsigned long long)iscsi_page->index);			
+		} else { /* WRITE */
+			if (!uptodate)
+				cache_err("Error when submit to block device\n");
+			
+			cache_dbg("WRITEBACK one page. Index is %llu\n", 
+				(unsigned long long)iscsi_page->index);
+			if(!PageActive(iscsi_page->page))
+				list_add(&iscsi_page->list,&list_inactive);
+			else
+				list_add(&iscsi_page->list,&list_active);
+			iscsi_page->site = temp;
+			//cache_end_page_writeback(iscsi_page);
+		}
 	} while (bvec >= bio->bi_io_vec);
 	
-	inactive_writeback_add_list(&list_inactive);
-	active_writeback_add_list(&list_active);
-
-	cache_dbg("---This bio is over, includes %d pages.\n", bio->bi_vcnt);
+	if (bio_data_dir(bio) == WRITE){
+		inactive_writeback_add_list(&list_inactive);
+		active_writeback_add_list(&list_active);
+	}
+	
+	cache_dbg("This bio includes %d pages.\n", bio->bi_vcnt);
 	
 	/* If last bio signal completion */
 	if (atomic_dec_and_test(&tio_work->bios_remaining))
@@ -564,8 +559,7 @@ static void cache_mpage_endio(struct bio *bio, int err)
 }
 
 static struct bio * cache_mpage_alloc(struct block_device *bdev,
-		sector_t first_sector, int nr_vecs,
-		gfp_t gfp_flags)
+	sector_t first_sector, int nr_vecs, gfp_t gfp_flags)
 {
 	struct bio *bio;
 
@@ -601,6 +595,129 @@ struct bio *cache_mpage_bio_submit(struct cache_mpage_data *mpd, struct bio *bio
 		mpd->bio_list = mpd->bio_tail = bio;
 	
 	return NULL;
+}
+
+static int cache_do_readpage(struct iscsi_cache_page *iscsi_page, int nr_pages,
+	struct cache_mpage_data *mpd, struct tio_work *tio_work)
+{	
+	int err = 0;
+	int length = PAGE_SIZE;
+	struct bio* bio = mpd->bio;
+	struct iscsi_cache *iscsi_cache = iscsi_page->iscsi_cache;
+	struct block_device * bdev = iscsi_cache->bdev;
+
+	if (bio && (mpd->last_page_in_bio != iscsi_page->index -1))
+		bio = cache_mpage_bio_submit(mpd, bio, READ);
+
+alloc_new:
+	if (bio == NULL) {
+		bio = cache_mpage_alloc(bdev, iscsi_page->index <<3,
+			  	min_t(int, nr_pages, bio_get_nr_vecs(bdev)),
+				GFP_KERNEL);
+		if (bio == NULL)
+			goto confused;
+		
+		bio->bi_private = tio_work;
+		atomic_inc(&tio_work->bios_remaining);
+	}
+
+	if (bio_add_page(bio, iscsi_page->page, length, 0) < length) {
+		cache_dbg("bio maybe it's full: %d pages.\n", bio->bi_vcnt);
+		bio = cache_mpage_bio_submit(mpd, bio, READ);
+		goto alloc_new;
+	}
+	
+	mpd->last_page_in_bio = iscsi_page->index;
+	mpd->bio = bio;
+	return err;
+	
+confused:
+	if (bio)
+		bio = cache_mpage_bio_submit(mpd, bio, READ);
+
+	err = cache_rw_page(iscsi_page, READ);
+	
+	mpd->bio = bio;
+	return err;
+}
+
+/*
+* multi-pages read/write, its pages maybe not sequential
+* called by iscsi_read_cache
+*/
+static int _cache_read_mpage(struct iscsi_cache *iscsi_cache, struct iscsi_cache_page **iscsi_pages, 
+	unsigned int pg_cnt, struct cache_mpage_data *mpd)
+{
+	int err = 0;
+	struct tio_work *tio_work;
+	int i, remain;
+	struct bio *bio;
+	struct blk_plug plug;
+
+	if(!iscsi_cache || !pg_cnt)
+		return 0;
+	
+	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
+	if (!tio_work)
+		return -ENOMEM;
+
+	atomic_set(&tio_work->error, 0);
+	atomic_set(&tio_work->bios_remaining, 0);
+	init_completion(&tio_work->tio_complete);
+
+	for (i = 0, remain = pg_cnt; i < pg_cnt; i++, remain--) {
+		struct iscsi_cache_page *iscsi_page = iscsi_pages[i];
+		
+		err = cache_do_readpage(iscsi_page, remain, mpd, tio_work);
+		if (unlikely(err)) {
+			cache_alert("It should never show up!Maybe disk crash... \n");
+			BUG();
+		}
+	}
+	
+	if (mpd->bio)
+		mpd->bio = cache_mpage_bio_submit(mpd, mpd->bio, READ);
+
+	blk_start_plug(&plug);
+	while (mpd->bio_list) {
+		bio = mpd->bio_list;
+		mpd->bio_list = mpd->bio_list->bi_next;
+		bio->bi_next = NULL;
+
+		submit_bio(READ, bio);
+	}
+	blk_finish_plug(&plug);
+
+	if(atomic_read(&tio_work->bios_remaining))
+		wait_for_completion(&tio_work->tio_complete);
+	err = atomic_read(&tio_work->error);
+	if(err)
+		cache_err("error when submit request to disk.\n");
+	
+	kfree(tio_work);
+	return err;
+}
+
+int cache_read_mpage(struct iscsi_cache *iscsi_cache, struct iscsi_cache_page **iscsi_pages, 
+	unsigned int pg_cnt)
+{
+	int ret;
+	
+	struct cache_mpage_data mpd = {
+		.bio = NULL,
+		.bio_tail = NULL,
+		.bio_list = NULL,
+		.last_page_in_bio = 0,
+	};
+	
+	ret = _cache_read_mpage(iscsi_cache, iscsi_pages, pg_cnt, &mpd);
+	
+	BUG_ON(mpd.bio != NULL);
+
+	if(unlikely(ret))
+		cache_err("An error has occurred when read mpage.\n");
+
+	return ret;
 }
 
 static int cache_do_writepage(struct iscsi_cache_page *iscsi_page, 
@@ -665,7 +782,7 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 	/* used for cache sync, only support page size now */
 //	pgoff_t wb_index[PVEC_SIZE];
 	struct tio_work *tio_work;
-	struct iscsi_cache_page *pages[PVEC_MAX_SIZE];
+	struct iscsi_cache_page **pages;
 	pgoff_t index=0;
 	pgoff_t end=wbc->range_end;
 	unsigned long  nr_pages;
@@ -677,10 +794,16 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 
 	if(!iscsi_cache)
 		return 0;
+
+	pages = kzalloc(PVEC_MAX_SIZE * sizeof (struct iscsi_cache_page *), GFP_KERNEL);
+	if (!pages)
+		return -ENOMEM;
 	
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
-	if (!tio_work)
+	if (!tio_work){
+		kfree(pages);
 		return -ENOMEM;
+	}
 	
 	if (wbc->mode == ISCSI_WB_SYNC_ALL)
 		tag = ISCSICACHE_TAG_TOWRITE;
@@ -837,7 +960,8 @@ continue_unlock:
 		
 	}	
 error:
-	kfree(tio_work);
+	if(tio_work)
+		kfree(tio_work);
 	return err;
 }
 

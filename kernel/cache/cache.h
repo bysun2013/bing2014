@@ -124,6 +124,8 @@ int cache_write_page_blocks(struct iscsi_cache_page *iet_page);
 int cache_check_read_blocks(struct iscsi_cache_page *iet_page, 
 	unsigned char valid, unsigned char read);
 int cache_rw_page(struct iscsi_cache_page *iet_page, int rw);
+int cache_read_mpage(struct iscsi_cache *iscsi_cache, 
+	struct iscsi_cache_page **iscsi_pages, unsigned int pg_cnt);
 void iscsi_delete_radix_tree(struct iscsi_cache *iscsi_cache);
 
 /* cache_config.c */
