@@ -50,7 +50,7 @@
 #define dprintk(level, fmt, args...)
 #endif
 
-
+#define cache_ignore(fmt, args...)
 #define cache_dbg(fmt, args...) \
 	dprintk(KERN_DEBUG, fmt, ##args)
 #define cache_info(fmt, args...) \

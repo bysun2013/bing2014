@@ -79,7 +79,7 @@ again:
 		cache_dbg("Cache is used up! Wait for write back...\n");
 		wake_up_process(iscsi_wb_forker);
 		if(iscsi_cache->owner)
-			writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 256);
+			writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 		else{
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ>>3);
@@ -95,7 +95,7 @@ again:
 * copy data to wrote into cache
 */
 static void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_page, 
-	char bitmap, unsigned int skip_blk, unsigned int bytes)
+	unsigned char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
 	char *dest, *source;
 	unsigned int i=0;
@@ -125,7 +125,7 @@ static void copy_tio_to_cache(struct page* page, struct iscsi_cache_page *iscsi_
 * copy data to read from cache
 */
 static void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* page, 
-	char bitmap, unsigned int skip_blk, unsigned int bytes)
+	unsigned char bitmap, unsigned int skip_blk)
 {
 	char *dest, *source;
 	unsigned int i=0;
@@ -139,14 +139,14 @@ static void copy_cache_to_tio(struct iscsi_cache_page *iscsi_page, struct page* 
 	dest = page_address(page);
 	source = page_address(iscsi_page->page);
 	
-	dest+=(skip_blk<<SECTOR_SHIFT);
+	source += (skip_blk<<SECTOR_SHIFT);
 	
 	for(i=0; i<SECTORS_ONE_PAGE; i++){
 		if(bitmap & (0x01<<i)){
 			memcpy(dest, source, SECTOR_SIZE);
-			dest+=SECTOR_SIZE;
+			source += SECTOR_SIZE;
 		}
-		source+=SECTOR_SIZE;
+		dest += SECTOR_SIZE;
 	}
 
 }
@@ -179,8 +179,6 @@ static struct iscsi_cache_page* cache_find_get_page(struct iscsi_cache *iscsi_ca
 	struct iscsi_cache_page * iscsi_page;
 	void **pagep;
 	
-	cond_resched();
-
 	rcu_read_lock();
 repeat:
 	iscsi_page = NULL;
@@ -270,6 +268,7 @@ again:
 				iet_page->index= -1;
 				lru_set_page_back(iet_page);
 				unlock_page(iet_page->page);
+				err = 0;
 				goto again;
 			}
 			lru_set_page_back(iet_page);
@@ -325,6 +324,68 @@ again:
 	return err;
 }
 
+/*
+* copy data from cache page to page of iscsi request
+*/
+static void _iscsi_read_from_cache(struct iscsi_cache_page * cache_page, struct page** pages, 
+		unsigned int pg_cnt, u32 size, loff_t ppos)
+{
+	int cache_sector_index = cache_page->index << SECTORS_ONE_PAGE_SHIFT;
+	int sector_start = ppos >> SECTOR_SHIFT;
+	int sector_end = (ppos + size -1) >> SECTOR_SHIFT;
+	int sector_off;
+	unsigned char bitmap;
+	unsigned int skip_blk;
+	int done = 0;
+	
+	pgoff_t page_index;
+	sector_t alba, lba_off;
+	u32 sector_num;
+	
+	/* read portion of page */
+	if(cache_sector_index < sector_start) {
+		skip_blk = sector_start - cache_sector_index;
+		sector_off = 0;
+		page_index = 0;
+		lba_off = skip_blk;
+		
+		sector_num = SECTORS_ONE_PAGE - (lba_off % SECTORS_ONE_PAGE);
+		if(sector_end < sector_start + sector_num){
+			sector_num = sector_end - sector_start + 1;
+		}
+		
+		bitmap = get_bitmap(sector_off, sector_num);
+		copy_cache_to_tio(cache_page, pages[page_index], bitmap, skip_blk);
+		cache_ignore("1. index=%ld, sector num is %ld, bitmap = 0x%x, skip = %d\n", 
+			cache_page->index, sector_num, bitmap, skip_blk);
+	}else{
+		skip_blk = 0;
+		sector_off = cache_sector_index - sector_start;
+
+		while(!done){
+			page_index = sector_off >> SECTORS_ONE_PAGE_SHIFT;
+			alba = page_index << SECTORS_ONE_PAGE_SHIFT;
+			lba_off = sector_off -alba;
+			sector_num = SECTORS_ONE_PAGE - (lba_off % SECTORS_ONE_PAGE);
+			if(sector_num > SECTORS_ONE_PAGE - skip_blk)
+				sector_num = SECTORS_ONE_PAGE - skip_blk;
+			if(sector_end < cache_sector_index + skip_blk + sector_num) { 
+				sector_num = sector_end - cache_sector_index - skip_blk + 1;
+				done = 1;
+			}
+			bitmap = get_bitmap(lba_off, sector_num);
+			copy_cache_to_tio(cache_page, pages[page_index], bitmap, skip_blk);
+			skip_blk += sector_num;
+			sector_off += sector_num;
+			cache_ignore("2. index=%ld, sector num is %ld, bitmap = 0x%x, skip = %d\n", 
+				cache_page->index, sector_num, bitmap, skip_blk);
+			if(skip_blk >= SECTORS_ONE_PAGE)
+				break;
+		}
+		
+	}
+}
+
 /**
 * according to size of request, read all the data one time
 */
@@ -333,17 +394,11 @@ static int _iscsi_read_cache(void *iscsi_cachep, struct page **pages,
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
 	struct iscsi_cache_page *iet_page;
-	int page_to_read = 0;
-	u32 sector_num;
-	u32 tio_index = 0;
-	int err = 0, index;
-	unsigned char bitmap;
-
-	sector_t lba, alba, lba_off;
-	pgoff_t page_start, page_end;
 	struct iscsi_cache_page **iscsi_pages;
-
-	BUG_ON(ppos % SECTOR_SIZE != 0);
+	int page_to_read = 0;
+	int err = 0, index;
+	int i;
+	pgoff_t page_start, page_end;
 	
 	page_start = ppos >> PAGE_SHIFT;
 	page_end =  (ppos +size -1) >> PAGE_SHIFT;
@@ -362,7 +417,24 @@ again:
 				unlock_page(iet_page->page);
 				goto again;
 			}
+			
+			/* if page to read is invalid, read from disk */
+			if(unlikely(iet_page->valid_bitmap != 0xff)) {
+				cache_dbg("data to read isn't 0xff, try to read from disk.\n");
+				
+				err=cache_check_read_blocks(iet_page, iet_page->valid_bitmap, 0xff);
+				if(unlikely(err)){
+					cache_err("Error occurs when read missed blocks.\n");
+					unlock_page(iet_page->page);
+					return err;
+				}
+				iet_page->valid_bitmap = 0xff;
+			}
+
+			_iscsi_read_from_cache(iet_page, pages, pg_cnt, size, ppos);
+
 			lru_read_hit_handle(iet_page);
+			unlock_page(iet_page->page);
 		}else{	/* Read Miss */
 			iet_page=cache_get_free_page(iscsi_cache);
 			
@@ -375,58 +447,28 @@ again:
 					cache_dbg("This page exists, try again!\n");
 					iet_page->iscsi_cache= NULL;
 					iet_page->index= -1;
-					lru_set_page_back(iet_page);
 					unlock_page(iet_page->page);
+					lru_set_page_back(iet_page);
+					err = 0;
 					goto again;
 				}
-				lru_set_page_back(iet_page);
 				cache_err("Error occurs when read miss, err = %d\n", err);
 				unlock_page(iet_page->page);
+				lru_set_page_back(iet_page);
 				kfree(iscsi_pages);
 				return err;
 			}
-			lru_read_miss_handle(iet_page);
-			atomic_inc(&iscsi_cache->total_pages);
-			
 			iscsi_pages[page_to_read++] = iet_page;
 		}
 	}
 
 	cache_read_mpage(iscsi_cache, iscsi_pages, page_to_read);
 
-	/* Main processing loop */
-	while (size && tio_index < pg_cnt) {
-			pgoff_t page_index;
-			unsigned int current_bytes, bytes = PAGE_SIZE;
-			unsigned int  skip_blk = 0;
-
-			if (bytes > size)
-				bytes = size;
-
-			while(bytes>0){
-				lba = ppos>>SECTOR_SHIFT;
-				page_index = lba>>SECTORS_ONE_PAGE_SHIFT;
-				alba = page_index<<SECTORS_ONE_PAGE_SHIFT;
-				lba_off = lba-alba;
-				
-				current_bytes = PAGE_SIZE-(lba_off<<SECTOR_SHIFT);
-				if(current_bytes>bytes)
-					current_bytes=bytes;
-				sector_num = current_bytes>>SECTOR_SHIFT;
-				bitmap = get_bitmap(lba_off, sector_num);
-				
-				iet_page= cache_find_get_page(iscsi_cache, page_index);
-				BUG_ON(iet_page == NULL);
-				copy_cache_to_tio(iet_page, pages[tio_index], bitmap, skip_blk, current_bytes);
-				unlock_page(iet_page->page);
-				
-				bytes -= current_bytes;
-				size -= current_bytes;
-				skip_blk += sector_num;
-				ppos += current_bytes;
-			}
-			
-			tio_index++;
+	for(i=0; i<page_to_read; i++){
+		_iscsi_read_from_cache(iscsi_pages[i], pages, pg_cnt, size, ppos);
+		lru_read_miss_handle(iscsi_pages[i]);		
+		unlock_page(iscsi_pages[i]->page);
+		atomic_inc(&iscsi_cache->total_pages);
 	}
 
 	if(iscsi_pages)
@@ -467,9 +509,10 @@ static int _iscsi_write_cache(void *iscsi_cachep, struct page **pages,
 				sector_num=current_bytes>>SECTOR_SHIFT;
 				bitmap=get_bitmap(lba_off, sector_num);
 
-				_iscsi_write_into_cache(iscsi_cache, page_index, pages[tio_index],
+				err = _iscsi_write_into_cache(iscsi_cache, page_index, pages[tio_index],
 					bitmap, current_bytes, skip_blk);
-				
+				if(unlikely(err))
+					return err;
 				bytes-=current_bytes;
 				size -=current_bytes;
 				skip_blk+=sector_num;
@@ -497,7 +540,9 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 {
 	int err;
 
-	cache_dbg("the size of request of read is %d\n", size);
+	cache_ignore("the size of read request is %d, ppos = %lld\n", size, ppos);
+	
+	BUG_ON(ppos % SECTOR_SIZE != 0);
 	err = _iscsi_read_cache(iscsi_cachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
 
 	return err;
@@ -506,8 +551,10 @@ int iscsi_read_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 si
 int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
 {
 	int err;
+
+	cache_ignore("the size of write request is %d, ppos = %lld\n", size, ppos);
 	
-	cache_dbg("the size of request of write is %d\n", size);
+	BUG_ON(ppos % SECTOR_SIZE != 0);
 	err = _iscsi_write_cache(iscsi_cachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
 
 	return err;

@@ -43,8 +43,8 @@ static void cache_page_endio(struct bio *bio, int error)
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
 		if (unlikely(bio_data_dir(bio) == WRITE)){
-			cache_dbg("WRITEBACK one page. Index is %llu.\n", 
-				(unsigned long long)iscsi_page->index);	
+			cache_ignore("WRITEBACK one page. Index is %llu.\n", 
+				(unsigned long long)iscsi_page->index);
 			lru_add_page(iscsi_page);
 			cache_end_page_writeback(iscsi_page);
 		}
@@ -169,7 +169,7 @@ int cache_rw_page(struct iscsi_cache_page *iet_page, int rw)
 	return err;
 	
 out:
-	cache_err("Error occurs when page rw.\n");
+	cache_err("Error occurs when page rw, err = %d\n", err);
 	bio_put(bio);
 	kfree(tio_work);
 	return err;
@@ -181,8 +181,7 @@ static int _cache_rw_page_blocks(struct iscsi_cache_page *iet_page, unsigned cha
 	int err=0;
 	int tmp=1;
 
-	/* it's more possible, so detect it first. */
-	if(likely((bitmap & 0xff) == 0xff)){
+	if(unlikely((bitmap & 0xff) == 0xff)){
 		err=cache_rw_page(iet_page, rw);
 		return err;
 	}
@@ -218,7 +217,7 @@ static int _cache_rw_page_blocks(struct iscsi_cache_page *iet_page, unsigned cha
 	return 0;
 	
 error:	
-	cache_err("Error occurs when submit blocks to device.\n");
+	cache_err("Error occurs when submit blocks to device, err = %d\n", err);
 	return err;
 }
 
@@ -302,6 +301,7 @@ static unsigned iscsi_find_get_pages_tag(struct iscsi_cache *iscsi_cache, pgoff_
 	unsigned int ret;
 	unsigned int nr_found;
 
+	rcu_read_lock();
 restart:
 	nr_found = radix_tree_gang_lookup_tag_slot(&iscsi_cache->page_tree,
 				(void ***)pages, *index, nr_pages, tag);
@@ -526,21 +526,18 @@ static void cache_mpage_endio(struct bio *bio, int err)
 			prefetchw(&bvec->bv_page->flags);
 		
 		if (bio_data_dir(bio) == READ) {
-			iscsi_page->valid_bitmap = 0xff;
-			cache_dbg("READ one page. Index is %llu\n", 
-				(unsigned long long)iscsi_page->index);			
+			iscsi_page->valid_bitmap = 0xff;	
+			cache_ignore("READ one page. Index is %llu\n",
+				(unsigned long long)iscsi_page->index);		
 		} else { /* WRITE */
-			if (!uptodate)
-				cache_err("Error when submit to block device\n");
 			
-			cache_dbg("WRITEBACK one page. Index is %llu\n", 
+			cache_ignore("WRITEBACK one page. Index is %llu\n", 
 				(unsigned long long)iscsi_page->index);
 			if(!PageActive(iscsi_page->page))
 				list_add(&iscsi_page->list,&list_inactive);
 			else
 				list_add(&iscsi_page->list,&list_active);
 			iscsi_page->site = temp;
-			//cache_end_page_writeback(iscsi_page);
 		}
 	} while (bvec >= bio->bi_io_vec);
 	
@@ -549,7 +546,7 @@ static void cache_mpage_endio(struct bio *bio, int err)
 		active_writeback_add_list(&list_active);
 	}
 	
-	cache_dbg("This bio includes %d pages.\n", bio->bi_vcnt);
+	cache_dbg("%s: This bio includes %d pages.\n", bio_data_dir(bio) == READ? "READ":"WRITE", bio->bi_vcnt);
 	
 	/* If last bio signal completion */
 	if (atomic_dec_and_test(&tio_work->bios_remaining))
@@ -738,9 +735,10 @@ alloc_new:
 		bio = cache_mpage_alloc(bdev, iscsi_page->index <<3,
 			  	min_t(int, nr_pages, bio_get_nr_vecs(bdev)),
 				GFP_KERNEL);
-		if (bio == NULL)
+		if (bio == NULL){
+			cache_dbg("Memory has been used up...\n");
 			goto confused;
-		
+		}
 		bio->bi_private = tio_work;
 		atomic_inc(&tio_work->bios_remaining);
 	}
@@ -758,14 +756,12 @@ alloc_new:
 confused:
 	if (bio)
 		bio = cache_mpage_bio_submit(mpd, bio, WRITE);
-
-	/* I believe the minimal block should be 4KB */ 
-	err = cache_rw_page(iscsi_page, WRITE);
-	if (unlikely(err)) {
-		cache_err("Error when writeback blocks to device.\n");
-	}
 	
 	mpd->bio = bio;
+	
+	/* I believe the minimal block should be 4KB */ 
+	err = cache_rw_page(iscsi_page, WRITE);
+	
 	return err;
 }
 
@@ -962,6 +958,8 @@ continue_unlock:
 error:
 	if(tio_work)
 		kfree(tio_work);
+	if(pages)
+		kfree(pages);
 	return err;
 }
 
@@ -996,7 +994,6 @@ int writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, unsigne
 
 	if(unlikely(ret)){
 		cache_err("An error has occurred when writeback.\n");
-		return ret;
 	}
 	
 	return (pages_to_write - wbc.nr_to_write);
