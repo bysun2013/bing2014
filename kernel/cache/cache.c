@@ -76,13 +76,20 @@ again:
 		}
 		return iscsi_page;
 	}else{
-		cache_dbg("Cache is used up! Wait for write back...\n");
+		cache_dbg("%s: Cache is used up! dirty_pages:%d\n", 
+				iscsi_cache->path, atomic_read(&iscsi_cache->dirty_pages));
 		wake_up_process(iscsi_wb_forker);
-		if(iscsi_cache->owner)
-			writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
-		else{
+		if(iscsi_cache->owner){
+			unsigned int nr_wrote;
+			nr_wrote = writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+			if(!nr_wrote){
+				set_current_state(TASK_INTERRUPTIBLE);
+				schedule_timeout(HZ);
+				__set_current_state(TASK_RUNNING);				
+			}	
+		}else{
 			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(HZ>>3);
+			schedule_timeout(HZ >> 3);
 			__set_current_state(TASK_RUNNING);
 		}
 		goto again;
@@ -160,10 +167,7 @@ static int cache_add_page(struct iscsi_cache *iscsi_cache,  struct iscsi_cache_p
 		spin_lock_irq(&iscsi_cache->tree_lock);
 		error = radix_tree_insert(&iscsi_cache->page_tree, iscsi_page->index, iscsi_page);
 		spin_unlock_irq(&iscsi_cache->tree_lock);
-		
-		if (unlikely(error)) {
-			cache_dbg("something is wrong when add page to cache, it's perhaps not fault.\n");
-		}
+
 		radix_tree_preload_end();
 	}else
 		cache_err("Error occurs when preload cache!\n");
@@ -264,16 +268,17 @@ again:
 		err=cache_add_page(iscsi_cache, iet_page);
 		if(unlikely(err)){
 			if(err==-EEXIST){
+				cache_dbg("This page exists, try again!\n");
 				iet_page->iscsi_cache= NULL;
 				iet_page->index= -1;
-				lru_set_page_back(iet_page);
 				unlock_page(iet_page->page);
+				lru_set_page_back(iet_page);
 				err = 0;
 				goto again;
 			}
-			lru_set_page_back(iet_page);
-			cache_err("Error occurs when write, but reason is not clear.\n");
 			unlock_page(iet_page->page);
+			lru_set_page_back(iet_page);
+			cache_err("Error occurs when read miss, err = %d\n", err);
 			return err;
 		}
 		
@@ -420,7 +425,7 @@ again:
 			
 			/* if page to read is invalid, read from disk */
 			if(unlikely(iet_page->valid_bitmap != 0xff)) {
-				cache_dbg("data to read isn't 0xff, try to read from disk.\n");
+				cache_ignore("data to read isn't 0xff, try to read from disk.\n");
 				
 				err=cache_check_read_blocks(iet_page, iet_page->valid_bitmap, 0xff);
 				if(unlikely(err)){
@@ -432,7 +437,6 @@ again:
 			}
 
 			_iscsi_read_from_cache(iet_page, pages, pg_cnt, size, ppos);
-
 			lru_read_hit_handle(iet_page);
 			unlock_page(iet_page->page);
 		}else{	/* Read Miss */
@@ -644,7 +648,7 @@ void del_iscsi_cache(void *iscsi_cachep)
 		wait_for_completion(&iscsi_cache->wb_completion);
 	}
 	
-	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, ULONG_MAX);
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, LONG_MAX);
 
 	//cache_conn_exit(iscsi_cache);
 	

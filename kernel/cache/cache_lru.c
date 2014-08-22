@@ -30,8 +30,33 @@ struct task_struct *lru_shrink_thread;
 
 extern unsigned long iscsi_cache_total_pages;
 extern void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page);
+
+static long list_length(struct list_head *lru, spinlock_t *lock)
+{
+	struct list_head *list;
+	long total = 0;
+	
+	spin_lock_irq(lock);
+	list_for_each(list, lru) {
+		total++;
+	}
+	spin_unlock_irq(lock);
 
-static void lru_page_add(struct list_head *list,struct list_head *lru,spinlock_t * lock)
+	return total;
+}
+
+long inactive_length(void)
+{
+	return list_length(&inactive_list, &inactive_lock);
+}
+
+long active_length(void)
+{
+	return list_length(&active_list, &active_lock);
+}
+
+
+static void lru_page_add(struct list_head *list,struct list_head *lru, spinlock_t * lock)
 {
 	spin_lock_irq(lock);
 	list_add(list, lru);
@@ -57,8 +82,8 @@ struct iscsi_cache_page* lru_alloc_page(void)
 	struct list_head * pos,*temp;
 	if(!list_empty(&inactive_list)){
 		spin_lock_irq(&inactive_lock);
-		list_for_each_prev_safe(pos,temp,&inactive_list){
-			cache_page = list_entry(pos,struct iscsi_cache_page,list);
+		list_for_each_prev_safe(pos,temp, &inactive_list) {
+			cache_page = list_entry(pos, struct iscsi_cache_page, list);
 			if(!trylock_page(cache_page->page))
 				continue;
 			list_del_init(pos);
@@ -273,14 +298,12 @@ void lru_read_miss_handle(struct iscsi_cache_page *cache_page)
 
 void lru_read_hit_handle(struct iscsi_cache_page *cache_page)
 {
-	if(PageWriteback(cache_page->page)){
-
-		/* page need to move from inactive to active */
+	if(PageWriteback(cache_page->page)) {
+		/* don't move from inactive to active, moved by bio_endio */
 		if(!PageActive(cache_page->page) && PageReferenced(cache_page->page)){
-			cache_dbg("move a writeback page from inactive to active");
-		}else{
+			;
+		}else
 			lru_mark_page_accessed(cache_page, 0);
-		}
 	}
 	else{
 		if(cache_page->site == inactive)

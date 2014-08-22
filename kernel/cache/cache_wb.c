@@ -218,7 +218,7 @@ int cache_writeback_thread(void *data)
 
 	del_timer(&iscsi_cache->wakeup_timer);
 	/* Flush any work that raced with us exiting */
-	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL,  ULONG_MAX);
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL,  LONG_MAX);
 	
 	complete_all(&iscsi_cache->wb_completion);
 	return 0;
@@ -320,7 +320,7 @@ static int writeback_all(void)
 	mutex_lock(&iscsi_cache_list_lock);
 	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list) {
 		mutex_unlock(&iscsi_cache_list_lock);
-		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_ALL, ULONG_MAX);
+		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_ALL, LONG_MAX);
 		mutex_lock(&iscsi_cache_list_lock);
 	}
 	mutex_unlock(&iscsi_cache_list_lock);

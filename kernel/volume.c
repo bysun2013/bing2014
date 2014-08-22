@@ -349,14 +349,11 @@ void iscsi_volume_destroy(struct iet_volume *volume)
 	assert(volume->l_state == IDEV_DEL);
 	assert(!atomic_read(&volume->l_count));
 	
-	/* destroy iscsi cache */
-	del_iscsi_cache(volume->iscsi_cache);
-	
 	volume->iotype->detach(volume);
 	put_iotype(volume->iotype);
 	list_del(&volume->list);
 	volume_reservation_exit(volume);
-	
+		
 	kfree(volume);
 }
 

@@ -151,6 +151,10 @@ blockio_detach(struct iet_volume *volume)
 
 	if (bio_data->bdev)
 		blkdev_put(bio_data->bdev, flags);
+	
+	/* destroy iscsi cache */
+	del_iscsi_cache(volume->iscsi_cache);
+	
 	kfree(bio_data->path);
 
 	kfree(volume->private);

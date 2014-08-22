@@ -110,6 +110,8 @@ case "$1" in
   stop)
         ietd_stop
         ietd_cache_stop
+	rmmod iscsi_trgt
+	rmmod iscsi_caches
         ;;
   restart)
   			ietd_stop
