@@ -11,6 +11,9 @@
 #include <linux/list.h>
 #include "cache.h"
 
+extern atomic_t inactive_list_length;
+extern atomic_t active_list_length;
+
 #define ACTIVE_TIMEOUT 20
 
 /* move all active to inactive if inactive < MIN_INACTIVE_LEN */

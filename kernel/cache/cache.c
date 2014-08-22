@@ -51,6 +51,32 @@ struct kmem_cache *cache_request_cache;
 struct list_head iscsi_cache_list;
 struct mutex iscsi_cache_list_lock;
 
+/*
+* when dirty pages is over the high thresh, writeback a fixed number
+* of dirty pages. It's to guarantee enough free clean pages.
+*/
+static int over_high_watermark(struct iscsi_cache * iscsi_cache)
+{
+	long dirty_pages = atomic_read(&iscsi_cache->dirty_pages);
+	long inactive_pages = atomic_read(&inactive_list_length);
+	long active_pages = atomic_read(&active_list_length);
+	if((inactive_pages + active_pages) > iscsi_cache_total_pages >> 4)
+		return 0;
+	if(dirty_pages * iscsi_cache_total_volume < iscsi_cache_total_pages)
+		return 0;
+
+	return 1;
+}
+
+static int decrease_dirty_ratio(struct iscsi_cache * iscsi_cache)
+{
+	int wrote = 0;
+	if(over_high_watermark(iscsi_cache))
+		wrote = writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+
+	return wrote;
+}
+
 static void del_page_from_radix(struct iscsi_cache_page *page)
 {
 	struct  iscsi_cache *iscsi_cache = page->iscsi_cache;
@@ -84,7 +110,7 @@ again:
 			nr_wrote = writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
 			if(!nr_wrote){
 				set_current_state(TASK_INTERRUPTIBLE);
-				schedule_timeout(HZ);
+				schedule_timeout(HZ >> 3);
 				__set_current_state(TASK_RUNNING);				
 			}	
 		}else{
@@ -260,8 +286,9 @@ again:
 	iet_page= cache_find_get_page(iscsi_cache, page_index);
 
 	if(iet_page == NULL){	/* Write Miss */
-		iet_page=cache_get_free_page(iscsi_cache);
+		decrease_dirty_ratio(iscsi_cache);
 		
+		iet_page=cache_get_free_page(iscsi_cache);
 		iet_page->iscsi_cache=iscsi_cache;
 		iet_page->index=page_index;
 
