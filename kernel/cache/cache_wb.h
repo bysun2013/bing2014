@@ -70,7 +70,7 @@ struct cache_writeback_work {
 extern struct task_struct *iscsi_wb_forker;
 
 void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
-long writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, long pages_to_write);
+long writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, long pages_to_write, bool cyclic);
 bool over_bground_thresh(struct iscsi_cache *iscsi_cache);
 void cache_wakeup_timer_fn(unsigned long data);
 void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache);

@@ -72,7 +72,7 @@ static int decrease_dirty_ratio(struct iscsi_cache * iscsi_cache)
 {
 	int wrote = 0;
 	if(over_high_watermark(iscsi_cache))
-		wrote = writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+		wrote = writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024, true);
 
 	return wrote;
 }
@@ -107,7 +107,7 @@ again:
 		wake_up_process(iscsi_wb_forker);
 		if(iscsi_cache->owner){
 			unsigned int nr_wrote;
-			nr_wrote = writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+			nr_wrote = writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024, true);
 			if(!nr_wrote){
 				set_current_state(TASK_INTERRUPTIBLE);
 				schedule_timeout(HZ >> 3);
@@ -619,6 +619,7 @@ void* init_iscsi_cache(const char *path, int owner, int port)
 
 	setup_timer(&iscsi_cache->wakeup_timer, cache_wakeup_timer_fn, (unsigned long)iscsi_cache);
 	iscsi_cache->task = NULL;
+	iscsi_cache->writeback_index = 0;
 	atomic_set(&iscsi_cache->dirty_pages, 0);
 	atomic_set(&iscsi_cache->total_pages, 0);
 	
@@ -675,7 +676,7 @@ void del_iscsi_cache(void *iscsi_cachep)
 		wait_for_completion(&iscsi_cache->wb_completion);
 	}
 	
-	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, LONG_MAX);
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, LONG_MAX, false);
 
 	//cache_conn_exit(iscsi_cache);
 	

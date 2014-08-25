@@ -105,10 +105,11 @@ static long cache_writeback(struct iscsi_cache *iscsi_cache, struct cache_writeb
 
 		if (work->for_kupdate) {
 			oldest_jif = jiffies -msecs_to_jiffies(cache_dirty_expire_interval * 10);
-		} else if (work->for_background)
+		} else if (work->for_background){
 			oldest_jif = jiffies;
-
-		progress = writeback_single(iscsi_cache, work->sync_mode, nr_pages);
+		}
+		
+		progress = writeback_single(iscsi_cache, work->sync_mode, nr_pages, work->range_cyclic);
 		
 		work->nr_pages -= progress;
 
@@ -126,7 +127,7 @@ static long cache_wb_background_flush(struct iscsi_cache *iscsi_cache)
 {
 	if (over_bground_thresh(iscsi_cache)) {
 		struct cache_writeback_work work = {
-			.nr_pages	= ULONG_MAX,
+			.nr_pages	= atomic_read(&iscsi_cache->dirty_pages),
 			.sync_mode	= ISCSI_WB_SYNC_NONE,
 			.for_background	= 1,
 			.range_cyclic	= 1,
@@ -218,7 +219,7 @@ int cache_writeback_thread(void *data)
 
 	del_timer(&iscsi_cache->wakeup_timer);
 	/* Flush any work that raced with us exiting */
-	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL,  LONG_MAX);
+	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL,  LONG_MAX, false);
 	
 	complete_all(&iscsi_cache->wb_completion);
 	return 0;
@@ -276,7 +277,7 @@ static int cache_forker_thread(void * args)
 					      "wb_%s", &iscsi_cache->path[5]);
 			init_completion(&iscsi_cache->wb_completion);
 			if (IS_ERR(task)) {
-				writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024);
+				writeback_single(iscsi_cache, ISCSI_WB_SYNC_NONE, 1024, true);
 			} else {
 				iscsi_cache->task = task;
 				wake_up_process(task);
@@ -320,7 +321,7 @@ static int writeback_all(void)
 	mutex_lock(&iscsi_cache_list_lock);
 	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list) {
 		mutex_unlock(&iscsi_cache_list_lock);
-		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_ALL, LONG_MAX);
+		writeback_single(iscsi_cache,  ISCSI_WB_SYNC_ALL, LONG_MAX, false);
 		mutex_lock(&iscsi_cache_list_lock);
 	}
 	mutex_unlock(&iscsi_cache_list_lock);

@@ -98,6 +98,7 @@ struct iscsi_cache{
 	unsigned long state;	/* Always use atomic bitops on this */
 	unsigned long last_old_flush;	/* last old data flush */
 	unsigned long last_active;	/* last time wb thread was active */
+	pgoff_t writeback_index;		/* for cyclic writeback */
 	atomic_t dirty_pages;	/* should be atomic */
 	atomic_t total_pages;
 	struct task_struct *task;	/* writeback thread */

@@ -46,11 +46,11 @@
 	} while (0)
 
 #else
-#define dprintk_detail(level, fmt, args...)	
-#define dprintk(level, fmt, args...)
+#define dprintk_detail(level, fmt, args...)	do{	}while(0)
+#define dprintk(level, fmt, args...)		do{	}while(0)
 #endif
 
-#define cache_ignore(fmt, args...)
+#define cache_ignore(fmt, args...)		do{	}while(0)
 #define cache_dbg(fmt, args...) \
 	dprintk(KERN_ALERT, fmt, ##args)
 #define cache_info(fmt, args...) \

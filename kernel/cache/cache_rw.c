@@ -751,7 +751,7 @@ confused:
 	mpd->bio = bio;
 	
 	/* I believe the minimal block should be 4KB */ 
-	err = cache_rw_page(iscsi_page, WRITE);
+	err = cache_write_page_blocks(iscsi_page);
 	
 	return err;
 }
@@ -766,14 +766,15 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 	int err = 0;
 	int done = 0;
 //	int m;
-	/* used for cache sync, only support page size now */
 //	pgoff_t wb_index[PVEC_SIZE];
 	struct tio_work *tio_work;
 	struct iscsi_cache_page *pages[PVEC_MAX_SIZE];
-	pgoff_t index=0;
-	pgoff_t end=wbc->range_end;
+	pgoff_t writeback_index = 0;
+	pgoff_t index, done_index;
+	pgoff_t end;
 	unsigned int nr_pages, wr_pages;
 	int tag;
+	int cycled;
 	bool is_seq;
 
 	BUG_ON(!iscsi_cache->owner);
@@ -786,14 +787,29 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 		return -ENOMEM;
 	}
 	
+	if (wbc->range_cyclic) {
+		writeback_index = iscsi_cache->writeback_index;
+		index = writeback_index;
+		if (index == 0)
+			cycled = 1;
+		else
+			cycled = 0;
+		end = -1;
+	} else {
+		index = wbc->range_start;
+		end = wbc->range_end;
+		cycled = 1;
+	}
+	
 	if (wbc->mode == ISCSI_WB_SYNC_ALL)
 		tag = ISCSICACHE_TAG_TOWRITE;
 	else
 		tag = ISCSICACHE_TAG_DIRTY;
-	
+retry:
 	if (wbc->mode == ISCSI_WB_SYNC_ALL)
 		iscsi_tag_pages_for_writeback(iscsi_cache, index, end);
 	
+	done_index = index;
 	while (!done && (index <= end)) {
 		int i;
 //		int wrote_index = 0;
@@ -818,7 +834,7 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 				done = 1;
 				break;
 			}
-
+			done_index = iscsi_page->index;
 			if(!trylock_page(iscsi_page->page)){
 				if (wbc->mode != ISCSI_WB_SYNC_NONE)
 					lock_page(iscsi_page->page);
@@ -924,6 +940,21 @@ continue_unlock:
 		/* set below threshold, to decrease pages to writeback */
 		
 	}	
+	
+	if (!cycled && !done) {
+		/*
+		 * range_cyclic:
+		 * We hit the last page and there is more work to be done: wrap
+		 * back to the start of the file
+		 */
+		cycled = 1;
+		index = 0;
+		end = writeback_index - 1;
+		goto retry;
+	}
+	if (wbc->range_cyclic)
+		iscsi_cache->writeback_index = done_index;
+	
 error:
 	if(tio_work)
 		kfree(tio_work);
@@ -937,7 +968,7 @@ error:
 * FIXME 
 * periodically kupdate don't support oldest pages writeback now. 
 */
-long writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, long pages_to_write)
+long writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, long pages_to_write, bool cyclic)
 {
 	int ret;
 	
@@ -946,6 +977,7 @@ long writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, long p
 		.mode = mode,
 		.range_start = 0,
 		.range_end = LONG_MAX,
+		.range_cyclic = cyclic,
 	};
 	
 	struct cache_mpage_data mpd = {
