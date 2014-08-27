@@ -32,13 +32,13 @@ extern unsigned long iscsi_cache_total_pages;
 extern unsigned int iscsi_cache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
-#define PVEC_SIZE		512
+#define PVEC_SIZE		64
 #define ADDR_LEN 		16
 #define PATH_LEN 		32
 
 /* dynamic writeback, to improve performance */
 #define PVEC_NORMAL_SIZE		16
-#define PVEC_MAX_SIZE           512
+#define PVEC_MAX_SIZE           64
 
 enum request_from{
 	REQUEST_FROM_PEER = 0,
@@ -119,12 +119,14 @@ struct cio {
 };
 
 int cache_clean_page(struct iscsi_cache * iscsi_cache, pgoff_t index);
+int _iscsi_write_cache(void *iscsi_cachep, struct page **pages, 
+	u32 pg_cnt, u32 size, loff_t ppos, enum request_from from);
+
 
 /* cache_rw.c */
 int cache_write_page_blocks(struct iscsi_cache_page *iet_page);
 int cache_check_read_blocks(struct iscsi_cache_page *iet_page, 
 	unsigned char valid, unsigned char read);
-int cache_rw_page(struct iscsi_cache_page *iet_page, int rw);
 int cache_read_mpage(struct iscsi_cache *iscsi_cache, 
 	struct iscsi_cache_page **iscsi_pages, int pg_cnt);
 void iscsi_delete_radix_tree(struct iscsi_cache *iscsi_cache);

@@ -54,15 +54,20 @@ struct p_block_ack {
 
 struct p_block_wrote {
 	u32	    seq_num;
-	u32	    pad;
+	u32	    wrote;
+} __packed;
+
+struct p_wrote_ack {
+	u32	    seq_num;
+	u32      pad;
 } __packed;
 
 enum cache_packet {
 	P_DATA		      = 0x00,
-	P_DATA_REPLY	      = 0x01, /* Response to P_DATA_REQUEST */
-	P_DATA_WRITTEN	      = 0x02, /* Used to delete data block written */
-	P_WRITE_ACK	      = 0x03, /* Response to P_DATA */ 
-
+	P_DATA_WRITTEN	      = 0x01, /* Used to delete data block written */
+	P_DATA_ACK	      = 0x02, /* Response to P_DATA */ 
+	P_WRITTEN_ACK	      = 0x03, /* Response to P_DATA_WRITTEN */ 
+	
 	/* special command ids for handshake */
 	P_INITIAL_META	      = 0xfff1, /* First Packet on the MetaSock */
 	P_INITIAL_DATA	      = 0xfff2, /* First Packet on the Socket */
@@ -70,8 +75,8 @@ enum cache_packet {
 
 struct packet_info {
 	enum cache_packet cmd;
-	unsigned int size;
-	unsigned int vnr;
+	int size;
+	int vnr;
 	void *data;
 };
 
@@ -274,10 +279,10 @@ int cache_msocket_receive(struct cache_connection *connection);
 
 int cache_send_dblock(struct cache_connection *connection, struct page **pages, 
 				int count, u32 size, sector_t sector, struct cache_request ** req);
-int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, int count);
+int cache_send_wrote(struct cache_connection *connection, 
+	pgoff_t *pages_index, int count, struct cache_request ** req);
 int cache_send_data_ack(struct cache_connection *connection,  u32 seq_num, u64 sector);
-
-int iscsi_write_cache(void *iscsi_cachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos);
+int cache_send_wrote_ack(struct cache_connection *connection,  u32 seq_num);
 
 struct cache_connection *cache_conn_init(struct iscsi_cache *iscsi_cache);
 int cache_conn_exit(struct iscsi_cache *iscsi_cache);

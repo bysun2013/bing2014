@@ -238,7 +238,7 @@ int cache_clean_page(struct iscsi_cache * iscsi_cache, pgoff_t index)
 again:
 	iscsi_page = cache_find_get_page(iscsi_cache, index);
 	if(!iscsi_page){
-		cache_dbg("Write out one page, not found, index = %ld\n", index);
+		cache_dbg("page to delete is not found, index = %ld\n", index);
 		return 0;
 	}
 	cache_dbg("Write out one page, index = %ld\n", index);
@@ -286,8 +286,6 @@ again:
 	iet_page= cache_find_get_page(iscsi_cache, page_index);
 
 	if(iet_page == NULL){	/* Write Miss */
-		decrease_dirty_ratio(iscsi_cache);
-		
 		iet_page=cache_get_free_page(iscsi_cache);
 		iet_page->iscsi_cache=iscsi_cache;
 		iet_page->index=page_index;
@@ -507,7 +505,7 @@ again:
 	return err;
 }
 
-static int _iscsi_write_cache(void *iscsi_cachep, struct page **pages, 
+int _iscsi_write_cache(void *iscsi_cachep, struct page **pages, 
 	u32 pg_cnt, u32 size, loff_t ppos, enum request_from from)
 {
 	struct iscsi_cache *iscsi_cache = (struct iscsi_cache *)iscsi_cachep;
@@ -516,9 +514,26 @@ static int _iscsi_write_cache(void *iscsi_cachep, struct page **pages,
 	u32 sector_num;
 	int err = 0;
 	unsigned char bitmap;
-	u32 real_size = size, real_ppos = ppos;
+	u32 real_size = size;
+	loff_t real_ppos = ppos;
 	sector_t lba, alba, lba_off;
 	pgoff_t page_index;
+
+	cache_dbg("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
+	
+	if(iscsi_cache->owner)
+		decrease_dirty_ratio(iscsi_cache);
+	
+	if(from == REQUEST_FROM_OUT && peer_is_good) {
+		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);
+		cache_dbg("wait for data ack.\n");
+		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
+			cache_warn("timeout when wait for data ack.\n");
+			cache_request_dequeue(req);
+		}else
+			kmem_cache_free(cache_request_cache, req);
+		cache_dbg("ok, get data ack, go on!\n"); 		
+	}
 	
 	/* Main processing loop */
 	while (size && tio_index < pg_cnt) {
@@ -552,18 +567,7 @@ static int _iscsi_write_cache(void *iscsi_cachep, struct page **pages,
 			
 			tio_index++;
 	}
-	/*
-	if(iscsi_cache->owner && peer_is_good){
-		int try = 5;
-		cache_send_dblock(iscsi_cache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);
-		cache_dbg("wait for data ack.\n");
-		if(wait_for_completion_timeout(&req->done, HZ*10) == 0){
-			cache_warn("timeout when wait for data ack.\n");
-			cache_request_dequeue(req);
-		}else
-			kmem_cache_free(cache_request_cache, req);
-		cache_dbg("ok, get data ack, go on!\n");
-	}*/
+	
 	return err;
 }
 
@@ -648,7 +652,7 @@ void* init_iscsi_cache(const char *path, int owner, int port)
 	iscsi_cache->owner = vol_owner;
 	iscsi_cache->origin_owner = vol_owner;
 
-	//iscsi_cache->conn = cache_conn_init(iscsi_cache);
+	iscsi_cache->conn = cache_conn_init(iscsi_cache);
 
 	iscsi_cache_total_volume++;
 	
@@ -678,7 +682,7 @@ void del_iscsi_cache(void *iscsi_cachep)
 	
 	writeback_single(iscsi_cache, ISCSI_WB_SYNC_ALL, LONG_MAX, false);
 
-	//cache_conn_exit(iscsi_cache);
+	cache_conn_exit(iscsi_cache);
 	
 	iscsi_delete_radix_tree(iscsi_cache);
 	
@@ -779,7 +783,6 @@ static int iscsi_global_cache_init(void)
 		ClearPageActive(page);
 		
 		iscsi_page->flag=0;
-		//list_add_tail(&iscsi_page->lru_list, &lru);
 		inactive_add_page(iscsi_page);
 
 		iscsi_struct_addr += iscsi_struct_size;

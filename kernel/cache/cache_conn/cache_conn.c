@@ -238,7 +238,7 @@ static struct socket *cache_wait_for_connect(struct cache_connection *connection
 	if (err <= 0)
 		return NULL;
 */
-	cache_err("Server waits for accept.\n");
+	cache_dbg("Server waits for accept.\n");
 	err = kernel_accept(ad->s_listen, &s_estab, 0);
 	if (err < 0) {
 		if (err != -EAGAIN && err != -EINTR && err != -ERESTARTSYS) {
@@ -249,7 +249,7 @@ static struct socket *cache_wait_for_connect(struct cache_connection *connection
 	if (s_estab)
 		unregister_state_change(s_estab->sk, ad);
 */	
-	cache_err("Server finish accept.\n");
+	cache_dbg("Server finish accept.\n");
 	return s_estab;
 }
 

@@ -136,8 +136,8 @@ static int cache_send_all(struct cache_connection *connection, struct socket *so
 */
 static int __send_command(struct cache_connection *conn,
 			  struct cache_socket *sock, enum cache_packet cmd,
-			  unsigned int header_size, void *data,
-			  unsigned int size)
+			  int header_size, void *data,
+			  int size)
 {
 	int msg_flags;
 	int err;
@@ -161,8 +161,8 @@ static int __send_command(struct cache_connection *conn,
 }
 
 static int conn_send_command(struct cache_connection *tconn, struct cache_socket *sock,
-		      enum cache_packet cmd, unsigned int header_size,
-		      void *data, unsigned int size)
+		      enum cache_packet cmd, int header_size,
+		      void *data, int size)
 {
 	int err;
 
@@ -252,7 +252,7 @@ static int _cache_send_pages(struct cache_connection *conn, struct page **pages,
 }
 
 static int _cache_send_zc_pages(struct cache_connection *conn, struct page **pages, 
-				int count, size_t size, sector_t sector)
+				int count, size_t size)
 {
 	int i;
 	/* hint all but last page with MSG_MORE */
@@ -284,8 +284,11 @@ int cache_send_dblock(struct cache_connection *connection, struct page **pages,
 		return -EIO;
 	
 	seq_num= atomic_inc_return(&connection->packet_seq);
+	*req = cache_request_alloc(connection, seq_num);
+	cache_request_enqueue(*req);
+	
 	p->sector = cpu_to_be64(sector);
-	p->block_id = (unsigned long)pages;
+	p->block_id = (u64)pages;
 	p->seq_num = cpu_to_be32(seq_num);
 	
 	cache_dbg("begin to send cmd.\n");
@@ -293,25 +296,24 @@ int cache_send_dblock(struct cache_connection *connection, struct page **pages,
 	
 	cache_dbg("finish sending cmd, begin to send data.\n");
 	if (!err) {
-		err = _cache_send_zc_pages(connection, pages, count, size, sector);
+		err = _cache_send_zc_pages(connection, pages, count, size);
 	}
 	cache_dbg("finish sending data.\n");
 	
 	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */
 
-	*req = cache_request_alloc(connection, seq_num);
-	cache_request_enqueue(*req);
-
 	return err;
 }
 
-int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, int count)
+int cache_send_wrote(struct cache_connection *connection, 
+	pgoff_t *pages_index, int count, struct cache_request ** req)
 {
 	struct cache_socket *sock;
 	struct p_block_wrote *p;
 	struct socket * socket;
 	int err;
 	int size = sizeof(pgoff_t)*count;
+	u32 seq_num;
 	
 	sock = &connection->meta;
 	socket = sock->socket;
@@ -319,8 +321,11 @@ int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, 
 	p = conn_prepare_command(connection, sock);
 	if (!p)
 		return -EIO;
+	seq_num = atomic_inc_return(&connection->packet_seq);
 
-	p->seq_num = cpu_to_be32(atomic_inc_return(&connection->packet_seq));
+	p->seq_num = cpu_to_be32(seq_num);
+	*req = cache_request_alloc(connection, seq_num);
+	cache_request_enqueue(*req);
 
 	cache_dbg("begin to send wrote data.\n");
 	err = __send_command(connection, sock, P_DATA_WRITTEN, sizeof(*p), NULL, size);
@@ -330,7 +335,7 @@ int cache_send_wrote(struct cache_connection *connection, pgoff_t *pages_index, 
 	cache_dbg("finish sending wrote data.\n");
 	
 	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */	
-	
+
 	return err;
 }
 
@@ -352,9 +357,35 @@ int cache_send_data_ack(struct cache_connection *connection,  u32 seq_num, u64 s
 	p->sector = cpu_to_be64(sector);
 
 	cache_dbg("begin to send data ack.\n");
-	err = __send_command(connection, sock, P_WRITE_ACK, sizeof(*p), NULL, 0);
+	err = __send_command(connection, sock, P_DATA_ACK, sizeof(*p), NULL, 0);
 
 	cache_dbg("finish sending data ack.\n");
+	
+	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */	
+	
+	return err;
+}
+
+int cache_send_wrote_ack(struct cache_connection *connection,  u32 seq_num)
+{
+	struct cache_socket *sock;
+	struct p_wrote_ack *p;
+	struct socket * socket;
+	int err;
+	
+	sock = &connection->meta;
+	socket = sock->socket;
+	
+	p = conn_prepare_command(connection, sock);
+	if (!p)
+		return -EIO;
+
+	p->seq_num = cpu_to_be32(seq_num);
+
+	cache_dbg("begin to send wrote ack.\n");
+	err = __send_command(connection, sock, P_WRITTEN_ACK, sizeof(*p), NULL, 0);
+
+	cache_dbg("finish sending wrote ack.\n");
 	
 	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */	
 	

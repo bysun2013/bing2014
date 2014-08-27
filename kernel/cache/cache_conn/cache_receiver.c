@@ -181,29 +181,24 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 	}
 	
 	cache_dbg("To write received data.\n");
-	iscsi_write_cache((void *)iscsi_cache, req->pvec, req->pg_cnt, req->size, req->offset);
+	_iscsi_write_cache((void *)iscsi_cache, req->pvec, req->pg_cnt, req->size, req->offset, REQUEST_FROM_PEER);
+
+	cache_send_data_ack(connection,peer_seq, sector);
 
 	cio_put(req);
 	
 	cache_dbg("write received data into cache.\n");
-
-	cache_send_data_ack(connection,peer_seq, sector);
-	return 0;
-};
-
-static int receive_data_reply(struct cache_connection *connection, struct packet_info *pi){
-	cache_dbg("receive data reply.\n");
 	return 0;
 };
 
 /* use msock to receive writeback index */
-static int receive_data_wrote(struct cache_connection *connection, struct packet_info *pi)
+static int receive_wrote(struct cache_connection *connection, struct packet_info *pi)
 {
 	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
 	struct p_block_wrote *p = pi->data;
 	unsigned int size = pi->size;
 	int count = size/sizeof(pgoff_t);
-	pgoff_t data[PVEC_SIZE];  /* this maybe wrong */
+	pgoff_t data[PVEC_MAX_SIZE];
 	pgoff_t *pages_index;
 	u32 peer_seq = be32_to_cpu(p->seq_num);
 	int err, i;
@@ -220,7 +215,7 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 	for(i=0; i<count; i++){
 		pgoff_t  index = pages_index[i];
 		if(index == -1)
-			continue;
+			break;
 		if(index < 0){
 			cache_err("Error occurs, index is %ld.\n", index);
 			return -EINVAL;
@@ -228,23 +223,41 @@ static int receive_data_wrote(struct cache_connection *connection, struct packet
 		cache_clean_page(iscsi_cache, index);
 	}
 
+	cache_send_wrote_ack(connection,peer_seq);
+
 	cache_alert("delete wrote data from cache.\n");
 	return err;
 };
 
-static int got_block_ack(struct cache_connection *connection, struct packet_info *pi){
+static int got_block_ack(struct cache_connection *connection, struct packet_info *pi)
+{
 	struct cache_request * req;
 	struct p_block_ack *p = pi->data;
 	u32 seq_num = be32_to_cpu(p->seq_num);
-//	sector_t sector = be64_to_cpu(p->sector);
 
 	req = get_ready_request(connection, seq_num);
 	if(!req)
 		return 0;
 
-	complete_all(&req->done);
+	complete(&req->done);
 
 	cache_dbg("receive data ack.\n");
+	return 0;
+};
+
+static int got_wrote_ack(struct cache_connection *connection, struct packet_info *pi)
+{
+	struct cache_request * req;
+	struct p_wrote_ack *p = pi->data;
+	u32 seq_num = be32_to_cpu(p->seq_num);
+
+	req = get_ready_request(connection, seq_num);
+	if(!req)
+		return 0;
+
+	complete(&req->done);
+
+	cache_dbg("receive wrote ack.\n");
 	return 0;
 };
 
@@ -255,9 +268,9 @@ static const char *cmdname(enum cache_packet cmd)
 	 * one PRO_VERSION */
 	static const char *cmdnames[] = {
 		[P_DATA]	        = "Data",
-		[P_DATA_REPLY]	        = "DataReply",
 		[P_DATA_WRITTEN]	= "DataWritten",
-		[P_WRITE_ACK]	        = "WriteAck",
+		[P_DATA_ACK]	        = "DataAck",
+		[P_WRITTEN_ACK]	        = "WrittenAck",
 	};
 
 	if (cmd == P_INITIAL_META)
@@ -271,9 +284,9 @@ static const char *cmdname(enum cache_packet cmd)
 
 static struct data_cmd cache_cmd_handler[] = {
 	[P_DATA]	    = { 1, sizeof(struct p_data), receive_data },
-	[P_DATA_REPLY]	    = { 1, sizeof(struct p_data), receive_data_reply },
-	[P_DATA_WRITTEN]    = { 1, sizeof(struct p_block_wrote), receive_data_wrote},
-	[P_WRITE_ACK]	    = {0,  sizeof(struct p_block_ack), got_block_ack },
+	[P_DATA_WRITTEN]    = { 1, sizeof(struct p_block_wrote), receive_wrote},
+	[P_DATA_ACK]	    = {0,  sizeof(struct p_block_ack), got_block_ack },
+	[P_WRITTEN_ACK]	    = {0,  sizeof(struct p_wrote_ack), got_wrote_ack },
 };
 
 void cache_socket_receive(struct cache_connection *connection)

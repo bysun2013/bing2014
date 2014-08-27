@@ -43,10 +43,8 @@ static void cache_page_endio(struct bio *bio, int error)
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
 		if (unlikely(bio_data_dir(bio) == WRITE)){
-			cache_ignore("WRITEBACK one page. Index is %llu.\n", 
+			cache_dbg("Single Page: WRITEBACK one page. Index is %llu.\n", 
 				(unsigned long long)iscsi_page->index);
-			lru_add_page(iscsi_page);
-			cache_end_page_writeback(iscsi_page);
 		}
 	} while (bvec >= bio->bi_io_vec);
 
@@ -122,7 +120,7 @@ out:
 	return err;
 }
 
-int cache_rw_page(struct iscsi_cache_page *iet_page, int rw)
+static int cache_rw_page(struct iscsi_cache_page *iet_page, int rw)
 {
 	struct block_device *bdev = iet_page->iscsi_cache->bdev;
 	struct tio_work *tio_work;
@@ -513,9 +511,6 @@ void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page)
  */
 static void cache_mpage_endio(struct bio *bio, int err)
 {
-	LIST_HEAD(list_inactive);
-	LIST_HEAD(list_active);
-
 	const int uptodate = test_bit(BIO_UPTODATE, &bio->bi_flags);
 	struct bio_vec *bvec = bio->bi_io_vec + bio->bi_vcnt - 1;
 	struct tio_work *tio_work = bio->bi_private;
@@ -532,25 +527,14 @@ static void cache_mpage_endio(struct bio *bio, int err)
 			prefetchw(&bvec->bv_page->flags);
 		
 		if (bio_data_dir(bio) == READ) {
-			iscsi_page->valid_bitmap = 0xff;	
+			iscsi_page->valid_bitmap = 0xff;
 			cache_ignore("READ one page. Index is %llu\n",
 				(unsigned long long)iscsi_page->index);		
 		} else { /* WRITE */
-			
-			cache_ignore("WRITEBACK one page. Index is %llu\n", 
+			cache_dbg("Mpage: WRITEBACK one page. Index is %llu\n", 
 				(unsigned long long)iscsi_page->index);
-			if(!PageActive(iscsi_page->page))
-				list_add(&iscsi_page->list,&list_inactive);
-			else
-				list_add(&iscsi_page->list,&list_active);
-			iscsi_page->site = temp;
 		}
 	} while (bvec >= bio->bi_io_vec);
-	
-	if (bio_data_dir(bio) == WRITE){
-		inactive_writeback_add_list(&list_inactive);
-		active_writeback_add_list(&list_active);
-	}
 	
 	cache_ignore("%s: This bio includes %d pages.\n", bio_data_dir(bio) == READ? "READ":"WRITE", bio->bi_vcnt);
 	
@@ -765,10 +749,10 @@ int cache_writeback_mpage(struct iscsi_cache *iscsi_cache, struct cache_writebac
 {
 	int err = 0;
 	int done = 0;
-//	int m;
-//	pgoff_t wb_index[PVEC_SIZE];
+	int m;
 	struct tio_work *tio_work;
 	struct iscsi_cache_page *pages[PVEC_MAX_SIZE];
+	pgoff_t wb_index[PVEC_MAX_SIZE];
 	pgoff_t writeback_index = 0;
 	pgoff_t index, done_index;
 	pgoff_t end;
@@ -812,9 +796,12 @@ retry:
 	done_index = index;
 	while (!done && (index <= end)) {
 		int i;
-//		int wrote_index = 0;
+		int wrote_index = 0;
 		struct blk_plug plug;
-
+		struct cache_request* req = NULL;
+		LIST_HEAD(list_inactive);
+		LIST_HEAD(list_active);
+		
 		atomic_set(&tio_work->error, 0);
 		atomic_set(&tio_work->bios_remaining, 0);
 		init_completion(&tio_work->tio_complete);
@@ -845,8 +832,6 @@ retry:
 			if (unlikely(iscsi_page->iscsi_cache != iscsi_cache)) {
 continue_unlock:
 				unlock_page(iscsi_page->page);
-//				pages[i]=	NULL;
-//				wb_index[i]= -1;
 				continue;
 			}
 
@@ -880,7 +865,13 @@ continue_unlock:
 				goto continue_unlock;
 			}
 			
-//			wb_index[wrote_index++]= iscsi_page->index;
+			if(!PageActive(iscsi_page->page))
+				list_add(&iscsi_page->list, &list_inactive);
+			else
+				list_add(&iscsi_page->list, &list_active);
+			iscsi_page->site = temp;
+			
+			wb_index[wrote_index++]= iscsi_page->index;
 			
 			atomic_dec(&iscsi_cache->dirty_pages);
 			
@@ -925,17 +916,24 @@ continue_unlock:
 			cache_err("Something unpected happened, disk may be abnormal.\n");
 			goto error;
 		}
+		
 		/* submit page index of written pages to peer */
-/*		for(m=wrote_index; m<PVEC_SIZE && peer_is_good; m++)
+		for(m = wrote_index; m < PVEC_MAX_SIZE; m++)
 			wb_index[m]= -1;
 		if(iscsi_cache->owner && wrote_index && peer_is_good)
-			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_SIZE);*/
-//		for(m=0; m<nr_pages; m++){
-//			if(!pages[m])
-//				continue;
-//			pages[m]->dirty_bitmap=0x00;
-//			mutex_unlock(&pages[m]->write);
-//		}
+			cache_send_wrote(iscsi_cache->conn, wb_index, PVEC_MAX_SIZE, &req);
+
+		cache_dbg("wait for wrote ack.\n");
+		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
+			cache_warn("timeout when wait for wrote ack.\n");
+			cache_request_dequeue(req);
+		}else{
+			kmem_cache_free(cache_request_cache, req);
+		}
+		cache_dbg("ok, get wrote ack, go on!\n");
+
+		inactive_writeback_add_list(&list_inactive);
+		active_writeback_add_list(&list_active);	
 
 		/* set below threshold, to decrease pages to writeback */
 		
