@@ -188,7 +188,7 @@ enum cache_conn_state {
 };
 
 struct cache_connection{
-	struct iscsi_cache *iscsi_cache;
+	struct dcache *dcache;
 	struct list_head connections;
 	enum cache_conn_state cstate;
 	struct mutex cstate_mutex;	/* Protects graceful disconnects */
@@ -284,8 +284,8 @@ int cache_send_wrote(struct cache_connection *connection,
 int cache_send_data_ack(struct cache_connection *connection,  u32 seq_num, u64 sector);
 int cache_send_wrote_ack(struct cache_connection *connection,  u32 seq_num);
 
-struct cache_connection *cache_conn_init(struct iscsi_cache *iscsi_cache);
-int cache_conn_exit(struct iscsi_cache *iscsi_cache);
+struct cache_connection *cache_conn_init(struct dcache *dcache);
+int cache_conn_exit(struct dcache *dcache);
 
 struct cio *cio_alloc(int count);
 void cio_put(struct cio *cio);

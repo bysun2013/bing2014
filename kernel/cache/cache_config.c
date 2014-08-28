@@ -1,8 +1,9 @@
 /*
- * (C) 2004 - 2005 FUJITA Tomonori <tomof@acm.org>
+ * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
  *
- * This code is licenced under the GPL.
+ * Released under the terms of the GNU GPL v2.0.
  */
+ 
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
 #include <linux/module.h>
@@ -137,28 +138,28 @@ static int lun_update(unsigned long ptr)
 /* called when peer recovery */
 static void hb_restore_owner(void)
 {
-	struct iscsi_cache *iscsi_cache;
+	struct dcache *dcache;
 	
 	peer_is_good = true;
 	
-	mutex_lock(&iscsi_cache_list_lock);
-	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
-		iscsi_cache->owner = iscsi_cache->origin_owner;
+	mutex_lock(&dcache_list_lock);
+	list_for_each_entry(dcache, &dcache_list, list){
+		dcache->owner = dcache->origin_owner;
 	}
-	mutex_unlock(&iscsi_cache_list_lock);
+	mutex_unlock(&dcache_list_lock);
 }
 /* called when peer crash */
 static void hb_change_state(void)
 {
-	struct iscsi_cache *iscsi_cache;
+	struct dcache *dcache;
 	
 	peer_is_good = false;
 	
-	mutex_lock(&iscsi_cache_list_lock);
-	list_for_each_entry(iscsi_cache, &iscsi_cache_list, list){
-		iscsi_cache->owner = true;
+	mutex_lock(&dcache_list_lock);
+	list_for_each_entry(dcache, &dcache_list, list){
+		dcache->owner = true;
 	}
-	mutex_unlock(&iscsi_cache_list_lock);
+	mutex_unlock(&dcache_list_lock);
 }
 /**
 *	$0 represent peer work well

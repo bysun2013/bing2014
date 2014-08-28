@@ -30,32 +30,32 @@ static void *cache_seq_start(struct seq_file *m, loff_t *pos)
 	int active,inactive;
 	int err;
 
-	err = mutex_lock_interruptible(&iscsi_cache_list_lock);
+	err = mutex_lock_interruptible(&dcache_list_lock);
 	if (err < 0)
 		return ERR_PTR(err);
 
 	inactive = atomic_read(&inactive_list_length);
 	active = atomic_read(&active_list_length);
-	pages_dirty = iscsi_cache_total_pages - inactive - active;
+	pages_dirty = dcache_total_pages - inactive - active;
 	seq_printf(m, "iSCSI Cache Status:\n");
 	seq_printf(m, "\tpage_dirty:%ld, inactive:%d, active:%d.\n", 
 		pages_dirty, inactive, active);
 
 	seq_printf(m, "\tTraverse List, inactive: %ld, active: %ld\n", inactive_length(), active_length());
-	seq_printf(m, "iSCSI Cache include %d volumes:\n", iscsi_cache_total_volume);
+	seq_printf(m, "iSCSI Cache include %d volumes:\n", dcache_total_volume);
 
-	return seq_list_start(&iscsi_cache_list, *pos);
+	return seq_list_start(&dcache_list, *pos);
 }
 
 static void *cache_seq_next(struct seq_file *m, void *v, loff_t *pos)
 {
-	return seq_list_next(v, &iscsi_cache_list, pos);
+	return seq_list_next(v, &dcache_list, pos);
 }
 
 static void cache_seq_stop(struct seq_file *m, void *v)
 {
 	if (PTR_ERR(v) != -EINTR)
-		mutex_unlock(&iscsi_cache_list_lock);
+		mutex_unlock(&dcache_list_lock);
 }
 
 static int cache_seq_show(struct seq_file *m, void *p)
@@ -77,7 +77,7 @@ struct seq_operations cache_seq_op = {
 
 static void cache_volume_info_show(struct seq_file *seq, void *p)
 {
-	struct iscsi_cache * volume = list_entry(p, struct iscsi_cache, list);
+	struct dcache * volume = list_entry(p, struct dcache, list);
 	
 	seq_printf(seq, "\tCache Path:%s total:%u dirty:%u\n",
 		&volume->path[0], atomic_read(&volume->total_pages), atomic_read(&volume->dirty_pages));

@@ -9,25 +9,25 @@
 
 #include "cache.h"
 
-#define ISCSICACHE_TAG_DIRTY	0
-#define ISCSICACHE_TAG_WRITEBACK	1
-#define ISCSICACHE_TAG_TOWRITE	2
+#define DCACHE_TAG_DIRTY	0
+#define DCACHE_TAG_WRITEBACK	1
+#define DCACHE_TAG_TOWRITE	2
 
 enum iscsi_wb_sync_modes {
-	ISCSI_WB_SYNC_NONE,	/* Don't wait on anything */
-	ISCSI_WB_SYNC_ALL,	/* Wait on every mapping */
+	DCACHE_WB_SYNC_NONE,	/* Don't wait on anything */
+	DCACHE_WB_SYNC_ALL,	/* Wait on every mapping */
 };
 
 /*
  * why some writeback work was initiated
  */
 enum cache_wb_reason {
-	ISCSI_WB_REASON_BACKGROUND,
-	ISCSI_WB_REASON_SYNC,
-	ISCSI_WB_REASON_PERIODIC,
-	ISCSI_WB_REASON_FORKER_THREAD,
+	DCACHE_WB_REASON_BACKGROUND,
+	DCACHE_WB_REASON_SYNC,
+	DCACHE_WB_REASON_PERIODIC,
+	DCACHE_WB_REASON_FORKER_THREAD,
 
-	ISCSI_WB_REASON_MAX,
+	DCACHE_WB_REASON_MAX,
 };
 
 /*
@@ -54,7 +54,7 @@ struct cache_writeback_control {
  */
 struct cache_writeback_work {
 	long nr_pages;
-	struct iscsi_cache *cache;
+	struct dcache *cache;
 	unsigned long *older_than_this;   /* may be used in the future */
 	enum iscsi_wb_sync_modes sync_mode;
 	
@@ -67,13 +67,13 @@ struct cache_writeback_work {
 	struct completion *done;	/* set if the caller waits */
 };
 
-extern struct task_struct *iscsi_wb_forker;
+extern struct task_struct *dcache_wb_forker;
 
-void iscsi_set_page_tag(struct iscsi_cache_page *iscsi_page, unsigned int tag);
-long writeback_single(struct iscsi_cache *iscsi_cache, unsigned int mode, long pages_to_write, bool cyclic);
-bool over_bground_thresh(struct iscsi_cache *iscsi_cache);
+void dcache_set_page_tag(struct dcache_page *dcache_page, unsigned int tag);
+long writeback_single(struct dcache *dcache, unsigned int mode, long pages_to_write, bool cyclic);
+bool over_bground_thresh(struct dcache *dcache);
 void cache_wakeup_timer_fn(unsigned long data);
-void wakeup_cache_flusher(struct iscsi_cache *iscsi_cache);
+void wakeup_cache_flusher(struct dcache *dcache);
 int wb_thread_init(void);
 void wb_thread_exit(void);
 

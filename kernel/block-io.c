@@ -25,7 +25,7 @@ blockio_make_write_request(struct iet_volume *volume, struct tio *tio, int rw)
 	loff_t ppos = tio->offset;
 	int err;
 	
-	err = iscsi_write_cache(volume->iscsi_cache, tio->pvec, tio->pg_cnt, size, ppos);
+	err = dcache_write(volume->volume_dcache, tio->pvec, tio->pg_cnt, size, ppos);
 
 	return err;
 }
@@ -37,7 +37,7 @@ blockio_make_read_request(struct iet_volume *volume, struct tio *tio, int rw)
 	loff_t ppos = tio->offset;
 	int err;
 
-	err = iscsi_read_cache(volume->iscsi_cache, tio->pvec, tio->pg_cnt, size, ppos);
+	err = dcache_read(volume->volume_dcache, tio->pvec, tio->pg_cnt, size, ppos);
 	
 	return err;
 }
@@ -152,8 +152,8 @@ blockio_detach(struct iet_volume *volume)
 	if (bio_data->bdev)
 		blkdev_put(bio_data->bdev, flags);
 	
-	/* destroy iscsi cache */
-	del_iscsi_cache(volume->iscsi_cache);
+	/* destroy disk cache */
+	del_volume_dcache(volume->volume_dcache);
 	
 	kfree(bio_data->path);
 
@@ -202,6 +202,11 @@ blockio_attach(struct iet_volume *volume, char *args)
 	/* Offer neither write nor read caching */
 	ClearLURCache(volume);
 	ClearLUWCache(volume);
+
+	  /* initialize iscsi cache */
+	  volume->volume_dcache = init_volume_dcache(bio_data->path, volume->machine_dest, volume->port); 
+	  if(!volume->volume_dcache)
+		  err = -ENOMEM;
 
   out:
 	if (err < 0)

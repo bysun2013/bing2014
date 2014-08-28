@@ -166,7 +166,7 @@ static struct cio* read_in_block(struct cache_connection *connection, sector_t s
 
 static int receive_data(struct cache_connection * connection, struct packet_info * pi)
 {
-	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
+	struct dcache *dcache = connection->dcache;
 	struct cio * req;
 	struct p_data *p = pi->data;
 	u32 peer_seq = be32_to_cpu(p->seq_num);
@@ -181,7 +181,7 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 	}
 	
 	cache_dbg("To write received data.\n");
-	_iscsi_write_cache((void *)iscsi_cache, req->pvec, req->pg_cnt, req->size, req->offset, REQUEST_FROM_PEER);
+	_dcache_write((void *)dcache, req->pvec, req->pg_cnt, req->size, req->offset, REQUEST_FROM_PEER);
 
 	cache_send_data_ack(connection,peer_seq, sector);
 
@@ -194,7 +194,7 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 /* use msock to receive writeback index */
 static int receive_wrote(struct cache_connection *connection, struct packet_info *pi)
 {
-	struct iscsi_cache *iscsi_cache = connection->iscsi_cache;
+	struct dcache *dcache = connection->dcache;
 	struct p_block_wrote *p = pi->data;
 	unsigned int size = pi->size;
 	int count = size/sizeof(pgoff_t);
@@ -220,7 +220,7 @@ static int receive_wrote(struct cache_connection *connection, struct packet_info
 			cache_err("Error occurs, index is %ld.\n", index);
 			return -EINVAL;
 		}
-		cache_clean_page(iscsi_cache, index);
+		dcache_clean_page(dcache, index);
 	}
 
 	cache_send_wrote_ack(connection,peer_seq);

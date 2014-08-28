@@ -28,8 +28,8 @@ atomic_t active_list_length;
 
 struct task_struct *lru_shrink_thread;
 
-extern unsigned long iscsi_cache_total_pages;
-extern void cache_end_page_writeback(struct iscsi_cache_page *iscsi_page);
+extern unsigned long dcache_total_pages;
+extern void dcache_end_page_writeback(struct dcache_page *dcache_page);
 
 static long list_length(struct list_head *lru, spinlock_t *lock)
 {
@@ -70,35 +70,33 @@ static void lru_page_add_tail(struct list_head *list,struct list_head *lru,spinl
 	spin_unlock_irq(lock);
 }
 
- /*
-  * get a new page from inactive_list
-  * if there are no pages,return NULL
-  * after function ,the page is locked
-  * cache site is not set here
-  */
-struct iscsi_cache_page* lru_alloc_page(void)
+/*
+  * get a new page from inactive_list. if there are no pages,return NULL
+  * after function ,the page is locked, cache site is not set here
+*/
+struct dcache_page* lru_alloc_page(void)
 {
-	struct iscsi_cache_page *cache_page = NULL;
+	struct dcache_page *dcache_page = NULL;
 	struct list_head * pos,*temp;
 	if(!list_empty(&inactive_list)){
 		spin_lock_irq(&inactive_lock);
 		list_for_each_prev_safe(pos,temp, &inactive_list) {
-			cache_page = list_entry(pos, struct iscsi_cache_page, list);
-			if(!trylock_page(cache_page->page))
+			dcache_page = list_entry(pos, struct dcache_page, list);
+			if(!trylock_page(dcache_page->page))
 				continue;
 			list_del_init(pos);
-			if(PageReferenced(cache_page->page))
-				ClearPageReferenced(cache_page->page);
-			if(PageActive(cache_page->page))
-				ClearPageActive(cache_page->page);
+			if(PageReferenced(dcache_page->page))
+				ClearPageReferenced(dcache_page->page);
+			if(PageActive(dcache_page->page))
+				ClearPageActive(dcache_page->page);
 			spin_unlock_irq(&inactive_lock);
 			atomic_dec(&inactive_list_length);
-			return cache_page;
+			return dcache_page;
 		}
 		spin_unlock_irq(&inactive_lock);
-		cache_page = NULL;
+		dcache_page = NULL;
 	}
-	return cache_page;
+	return dcache_page;
 }
 
 /*
@@ -122,7 +120,7 @@ static void list_connect(struct list_head *dst,struct list_head *src)
 static void lru_add_list(struct list_head *list,struct list_head *lru,spinlock_t * lock)
 {
 	struct list_head *first,*last;
-	struct iscsi_cache_page * cache_page;
+	struct dcache_page * dcache_page;
 	if(list_empty(list))
 		return;
 	first = list->next;
@@ -130,8 +128,8 @@ static void lru_add_list(struct list_head *list,struct list_head *lru,spinlock_t
 	spin_lock_irq(lock);
 	list_connect(lru,list);
 	while(first != (last->next)){
-		cache_page = list_entry(first,struct iscsi_cache_page,list);
-		unlock_page(cache_page->page);
+		dcache_page = list_entry(first,struct dcache_page,list);
+		unlock_page(dcache_page->page);
 		first = first->next;
 	}
 	spin_unlock_irq(lock);	
@@ -146,7 +144,7 @@ static int inactive_is_low(int *len)
 	int inactive,active;
 	inactive = atomic_read(&inactive_list_length);
 	active = atomic_read(&active_list_length);
-	if((inactive<<LRU_TOTAL_RATIO) > iscsi_cache_total_pages)
+	if((inactive<<LRU_TOTAL_RATIO) > dcache_total_pages)
 		return 0;
 	if(inactive < MIN_INACTIVE_LEN){
 		*len = active;
@@ -163,7 +161,7 @@ static void move_active_to_inactive(int len)
 {
 	int active;
 	struct list_head *pos;
-	struct iscsi_cache_page * cache_page;
+	struct dcache_page * dcache_page;
 	LIST_HEAD(list);
 	if(list_empty(&active_list))
 		return;
@@ -180,18 +178,18 @@ static void move_active_to_inactive(int len)
 	cache_dbg("active ready move %d pages to inactive\n",len);
 	pos = (&active_list)->prev;
 	while(active-- && pos != &active_list){
-		cache_page = list_entry(pos,struct iscsi_cache_page,list);
-		if(!trylock_page(cache_page->page)){
+		dcache_page = list_entry(pos,struct dcache_page,list);
+		if(!trylock_page(dcache_page->page)){
 			active++;
 			pos = pos->prev;
 			continue;
 		}
 		pos = pos->prev;
 		list_move(pos->next,&list);
-		cache_page->site = inactive;
-		if(PageReferenced(cache_page->page))
-			ClearPageReferenced(cache_page->page);
-		ClearPageActive(cache_page->page);
+		dcache_page->site = inactive;
+		if(PageReferenced(dcache_page->page))
+			ClearPageReferenced(dcache_page->page);
+		ClearPageActive(dcache_page->page);
 		atomic_dec(&active_list_length);
 		atomic_inc(&inactive_list_length);
 	}
@@ -215,48 +213,48 @@ void check_list_status(void)
  * before use it ,make sure that  the page is locked. page_locked()?
  * and not in other list.  list_del()?
  */
-void inactive_add_page(struct iscsi_cache_page *cache_page)
+void inactive_add_page(struct dcache_page *dcache_page)
 {
-	lru_page_add(&cache_page->list, &inactive_list, &inactive_lock);
-	cache_page->site = inactive;
+	lru_page_add(&dcache_page->list, &inactive_list, &inactive_lock);
+	dcache_page->site = inactive;
 	atomic_inc(&inactive_list_length);
 }
-void active_add_page(struct iscsi_cache_page *cache_page)
+void active_add_page(struct dcache_page *dcache_page)
 {
-	lru_page_add(&cache_page->list, &active_list, &active_lock);
-	cache_page->site = active;
+	lru_page_add(&dcache_page->list, &active_list, &active_lock);
+	dcache_page->site = active;
 	atomic_inc(&active_list_length);
 }
 
-void lru_add_page(struct iscsi_cache_page *cache_page)
+void lru_add_page(struct dcache_page *dcache_page)
 {
-	if(!PageActive(cache_page->page))
-		inactive_add_page(cache_page);
+	if(!PageActive(dcache_page->page))
+		inactive_add_page(dcache_page);
 	else
-		active_add_page(cache_page);
+		active_add_page(dcache_page);
 }
 
-void lru_set_page_back(struct iscsi_cache_page *cache_page)
+void lru_set_page_back(struct dcache_page *dcache_page)
 {
-	lru_page_add_tail(&cache_page->list, &inactive_list, &inactive_lock);
-	cache_page->site = inactive;
+	lru_page_add_tail(&dcache_page->list, &inactive_list, &inactive_lock);
+	dcache_page->site = inactive;
 	atomic_inc(&inactive_list_length);
 }
 
 /*
  * delete one page from lru,make sure the page is locked before use it
  */
-void lru_del_page(struct iscsi_cache_page * cache_page)
+void lru_del_page(struct dcache_page * dcache_page)
 {
-	if(cache_page->site == inactive){
+	if(dcache_page->site == inactive){
 		spin_lock_irq(&inactive_lock);
-		list_del_init(&cache_page->list);
+		list_del_init(&dcache_page->list);
 		spin_unlock_irq(&inactive_lock);
 		atomic_dec(&inactive_list_length);
 	}
-	else if(cache_page->site == active){
+	else if(dcache_page->site == active){
 		spin_lock_irq(&active_lock);
-		list_del_init(&cache_page->list);
+		list_del_init(&dcache_page->list);
 		spin_unlock_irq(&active_lock);
 		atomic_dec(&active_list_length);
 	}
@@ -265,24 +263,24 @@ void lru_del_page(struct iscsi_cache_page * cache_page)
 /*
  * move one inactive list page to active list,make sure the page is locked before use it
  */
-void move_page_to_active(struct iscsi_cache_page * cache_page)
+void move_page_to_active(struct dcache_page * dcache_page)
 {
-	lru_del_page(cache_page);
-	active_add_page(cache_page);
+	lru_del_page(dcache_page);
+	active_add_page(dcache_page);
 }
 
-void lru_mark_page_accessed(struct iscsi_cache_page *cache_page,int move)
+void lru_mark_page_accessed(struct dcache_page *dcache_page,int move)
 {
-	if(!PageReferenced(cache_page->page))
-		SetPageReferenced(cache_page->page);
+	if(!PageReferenced(dcache_page->page))
+		SetPageReferenced(dcache_page->page);
 	else{
-		if(!PageActive(cache_page->page)){
+		if(!PageActive(dcache_page->page)){
 			if(move){
 				//cache_dbg("lru mark need to move to active\n");
-				move_page_to_active(cache_page);
+				move_page_to_active(dcache_page);
 			}
-			ClearPageReferenced(cache_page->page);
-			SetPageActive(cache_page->page);
+			ClearPageReferenced(dcache_page->page);
+			SetPageActive(dcache_page->page);
 		}	
 	}
 }
@@ -290,26 +288,26 @@ void lru_mark_page_accessed(struct iscsi_cache_page *cache_page,int move)
 /*
  * call lru_alloc_page before use it, make sure that the cache page is locked
  */
-void lru_read_miss_handle(struct iscsi_cache_page *cache_page)
+void lru_read_miss_handle(struct dcache_page *dcache_page)
 {
-	inactive_add_page(cache_page);
-	SetPageReferenced(cache_page->page);
+	inactive_add_page(dcache_page);
+	SetPageReferenced(dcache_page->page);
 }
 
-void lru_read_hit_handle(struct iscsi_cache_page *cache_page)
+void lru_read_hit_handle(struct dcache_page *dcache_page)
 {
-	if(PageWriteback(cache_page->page)) {
+	if(PageWriteback(dcache_page->page)) {
 		/* don't move from inactive to active, moved by bio_endio */
-		if(!PageActive(cache_page->page) && PageReferenced(cache_page->page)){
+		if(!PageActive(dcache_page->page) && PageReferenced(dcache_page->page)){
 			;
 		}else
-			lru_mark_page_accessed(cache_page, 0);
+			lru_mark_page_accessed(dcache_page, 0);
 	}
 	else{
-		if(cache_page->site == inactive)
-			lru_mark_page_accessed(cache_page, 1);
+		if(dcache_page->site == inactive)
+			lru_mark_page_accessed(dcache_page, 1);
 		else
-			lru_mark_page_accessed(cache_page, 0);
+			lru_mark_page_accessed(dcache_page, 0);
 	}
 }
 
@@ -317,20 +315,20 @@ void lru_read_hit_handle(struct iscsi_cache_page *cache_page)
 /*
  * call lru_alloc_page before use it, make sure that the cache page is locked
  */
-void lru_write_miss_handle(struct iscsi_cache_page *cache_page)
+void lru_write_miss_handle(struct dcache_page *dcache_page)
 {
-	SetPageReferenced(cache_page->page);
-	cache_page->site = radix; 
+	SetPageReferenced(dcache_page->page);
+	dcache_page->site = radix; 
 }
 
 /*
  * before call it ,the cache page is not dirty,in active list or inactive list
  */
-void lru_write_hit_handle(struct iscsi_cache_page *cache_page)
+void lru_write_hit_handle(struct dcache_page *dcache_page)
 {
-	lru_del_page(cache_page);
-	lru_mark_page_accessed(cache_page,0);
-	cache_page->site = radix;
+	lru_del_page(dcache_page);
+	lru_mark_page_accessed(dcache_page,0);
+	dcache_page->site = radix;
 }
 
 /*
@@ -340,7 +338,7 @@ void lru_writeback_add_list(struct list_head *list,struct list_head *lru,
 			spinlock_t *lock,atomic_t *list_len,enum page_site site)
 {
 	struct list_head *first,*last;
-	struct iscsi_cache_page *cache_page = NULL;
+	struct dcache_page *dcache_page = NULL;
 	if(list_empty(list))
 		return;
 	first = list->next;
@@ -348,10 +346,10 @@ void lru_writeback_add_list(struct list_head *list,struct list_head *lru,
 	spin_lock_irq(lock);
 	list_connect(lru,list);
 	while(first != last->next){
-		cache_page = list_entry(first,struct iscsi_cache_page,list);
-		cache_page->site = site;
-		cache_page->dirty_bitmap = 0x00;
-		cache_end_page_writeback(cache_page);
+		dcache_page = list_entry(first,struct dcache_page,list);
+		dcache_page->site = site;
+		dcache_page->dirty_bitmap = 0x00;
+		dcache_end_page_writeback(dcache_page);
 		atomic_inc(list_len);
 		first = first->next;
 	}
@@ -374,21 +372,21 @@ void active_writeback_add_list(struct list_head *list)
 static void shrink_active_list(void)
 {
 	struct list_head * pos,*tmp;
-	struct iscsi_cache_page * cache_page;
+	struct dcache_page * dcache_page;
 	LIST_HEAD(list);
 	spin_lock_irq(&active_lock);
 	list_for_each_prev_safe(pos,tmp,&active_list){
-		cache_page = list_entry(pos,struct iscsi_cache_page,list);
-		if(!trylock_page(cache_page->page))
+		dcache_page = list_entry(pos,struct dcache_page,list);
+		if(!trylock_page(dcache_page->page))
 			continue;
-		if(PageReferenced(cache_page->page)){
-			ClearPageReferenced(cache_page->page);
-			unlock_page(cache_page->page);
+		if(PageReferenced(dcache_page->page)){
+			ClearPageReferenced(dcache_page->page);
+			unlock_page(dcache_page->page);
 		}
 		else{
-			list_move(&cache_page->list,&list);
-			cache_page->site = inactive;
-			ClearPageActive(cache_page->page);
+			list_move(&dcache_page->list,&list);
+			dcache_page->site = inactive;
+			ClearPageActive(dcache_page->page);
 			atomic_dec(&active_list_length);
 			atomic_inc(&inactive_list_length);
 		}
@@ -402,15 +400,15 @@ static void shrink_active_list(void)
 static void shrink_inactive_list(void)
 {
 	struct list_head * pos;
-	struct iscsi_cache_page * cache_page;
+	struct dcache_page * dcache_page;
 	spin_lock_irq(&inactive_lock);
 	list_for_each(pos,&inactive_list){
-		cache_page = list_entry(pos,struct iscsi_cache_page,list);
-		if(!trylock_page(cache_page->page))
+		dcache_page = list_entry(pos,struct dcache_page,list);
+		if(!trylock_page(dcache_page->page))
 			continue;
-		if(PageReferenced(cache_page->page))
-			ClearPageReferenced(cache_page->page);
-		unlock_page(cache_page->page);
+		if(PageReferenced(dcache_page->page))
+			ClearPageReferenced(dcache_page->page);
+		unlock_page(dcache_page->page);
 	}
 	spin_unlock_irq(&inactive_lock);
 }

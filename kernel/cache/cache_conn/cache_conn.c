@@ -631,7 +631,7 @@ int cache_mreceiver(struct cache_thread *thi)
 	
 	return err;
 }
-static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cache)
+static struct cache_connection *cache_conn_create(struct dcache *dcache)
 {
 	struct cache_connection *connection;
 	struct sockaddr_in my_addr, peer_addr;
@@ -640,7 +640,7 @@ static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cach
 	if (!connection)
 		return NULL;
 	
-	connection->iscsi_cache = iscsi_cache;
+	connection->dcache = dcache;
 
 	if (cache_alloc_socket(&connection->data))
 		goto fail;
@@ -676,13 +676,13 @@ static struct cache_connection *cache_conn_create(struct iscsi_cache *iscsi_cach
 	INIT_LIST_HEAD(&connection->request_list);
 	
 	my_addr.sin_family=AF_INET;
-	my_addr.sin_addr.s_addr=inet_addr(iscsi_cache->inet_addr);
-	my_addr.sin_port=htons(iscsi_cache->port);
+	my_addr.sin_addr.s_addr=inet_addr(dcache->inet_addr);
+	my_addr.sin_port=htons(dcache->port);
 	memcpy(&connection->my_addr, &my_addr, sizeof(my_addr));
 	
 	peer_addr.sin_family=AF_INET;
-	peer_addr.sin_addr.s_addr=inet_addr(iscsi_cache->inet_peer_addr);
-	peer_addr.sin_port=htons(iscsi_cache->port);
+	peer_addr.sin_addr.s_addr=inet_addr(dcache->inet_peer_addr);
+	peer_addr.sin_port=htons(dcache->port);
 	memcpy(&connection->peer_addr, &peer_addr, sizeof(peer_addr));
 
 	cache_thread_init(&connection->receiver, cache_receiver, "dreceiver");
@@ -703,7 +703,7 @@ fail:
 }
 
 
-static void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
+static void cache_conn_destroy(struct dcache *dcache)
 {
 	struct cache_connection *cache_conn;
 /*
@@ -711,10 +711,10 @@ static void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
 		cache_err("epoch_size:%d\n", atomic_read(&cache_conn->current_epoch->epoch_size));
 	kfree(cache_conn->current_epoch);
 */
-	if(!iscsi_cache)
+	if(!dcache)
 		return;
 	
-	if(!(cache_conn = iscsi_cache->conn))
+	if(!(cache_conn = dcache->conn))
 		return;
 
 	/* FIXME thread crash when exit */
@@ -725,23 +725,23 @@ static void cache_conn_destroy(struct iscsi_cache *iscsi_cache)
 	cache_free_socket(&cache_conn->meta);
 	cache_free_socket(&cache_conn->data);
 	kfree(cache_conn);
-	iscsi_cache->conn = NULL;
+	dcache->conn = NULL;
 }
 
-struct cache_connection *cache_conn_init(struct iscsi_cache *iscsi_cache)
+struct cache_connection *cache_conn_init(struct dcache *dcache)
 {
 	struct cache_connection * conn;
 	
 	cache_dbg("Start connection between caches!\n");
 	
-	conn = cache_conn_create(iscsi_cache);
+	conn = cache_conn_create(dcache);
 	
 	return conn;
 }
 
-int cache_conn_exit(struct iscsi_cache *iscsi_cache)
+int cache_conn_exit(struct dcache *dcache)
 {
-	cache_conn_destroy(iscsi_cache);
+	cache_conn_destroy(dcache);
 	
 	cache_dbg("Destroy connection between caches!\n");
 	return 0;

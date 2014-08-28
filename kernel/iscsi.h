@@ -177,10 +177,10 @@ struct iet_volume {
 	
 	/**
 		Be Careful!
-		It must be initialized by init_iscsi_cache, 
-		and deleted by del_iscsi_cache. 
+		It must be initialized by init_dcache_volume, 
+		and deleted by del_dcache_volume. 
 	 */
-	void *iscsi_cache;
+	void *volume_dcache;
 	
 	struct reservation reservation;
 	spinlock_t reserve_lock;

@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
+ *
+ * Released under the terms of the GNU GPL v2.0.
+ */
+
 #include "cache_conn.h"
 
 static int cio_add_pages(struct cio *cio, int count)
@@ -53,9 +59,7 @@ struct cio_iterator {
 	u32 pg_off;
 };
 
-void
-cio_init_iterator(struct cio *cio,
-		  struct cio_iterator *iter)
+void cio_init_iterator(struct cio *cio, struct cio_iterator *iter)
 {
 	iter->cio = cio;
 	iter->size = 0;
@@ -63,10 +67,7 @@ cio_init_iterator(struct cio *cio,
 	iter->pg_off = 0;
 }
 
-size_t
-cio_add_data(struct cio_iterator *iter,
-	     const u8 *data,
-	     size_t len)
+size_t cio_add_data(struct cio_iterator *iter, const u8 *data, size_t len)
 {
 	struct cio *cio = iter->cio;
 	const size_t to_copy = min(cio->pg_cnt * PAGE_SIZE - iter->size, len);

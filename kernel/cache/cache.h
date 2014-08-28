@@ -4,8 +4,8 @@
  * Released under the terms of the GNU GPL v2.0.
  */
 
-#ifndef CACHE_ISCSI_CACHE_H
-#define CACHE_ISCSI_CACHE_H
+#ifndef DCACHE_H
+#define DCACHE_H
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -21,15 +21,20 @@
 #include "cache_conn/cache_conn.h"
 #include "iet_cache_u.h"
 
-#define CACHE_VERSION "0.04"
+#define CACHE_VERSION "0.99"
+
+#define SECTOR_SHIFT	9
+#define SECTOR_SIZE	512
+#define SECTORS_ONE_PAGE	8
+#define SECTORS_ONE_PAGE_SHIFT 3
 
 extern bool peer_is_good;
 
-extern struct list_head iscsi_cache_list;
-extern struct mutex iscsi_cache_list_lock;
+extern struct list_head dcache_list;
+extern struct mutex dcache_list_lock;
 
-extern unsigned long iscsi_cache_total_pages;
-extern unsigned int iscsi_cache_total_volume;
+extern unsigned long dcache_total_pages;
+extern unsigned int dcache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
 #define PVEC_SIZE		64
@@ -53,9 +58,9 @@ enum page_site {
 };
 	
 
-struct iscsi_cache_page{
+struct dcache_page{
 	/* initialize when isolated, no lock needed*/
-	struct iscsi_cache  *iscsi_cache;
+	struct dcache  *dcache;
 
 	dev_t	device_id;
 	pgoff_t	index;
@@ -73,7 +78,7 @@ struct iscsi_cache_page{
 	unsigned char dirty_bitmap;
 }__attribute__((aligned(sizeof(u64))));
 
-struct iscsi_cache{
+struct dcache{
 	u32 id;
 	char path[PATH_LEN];
 
@@ -118,18 +123,10 @@ struct cio {
        atomic_t count; /* ref count */
 };
 
-int cache_clean_page(struct iscsi_cache * iscsi_cache, pgoff_t index);
-int _iscsi_write_cache(void *iscsi_cachep, struct page **pages, 
+int dcache_clean_page(struct dcache * dcache, pgoff_t index);
+int _dcache_write(void *dcachep, struct page **pages, 
 	u32 pg_cnt, u32 size, loff_t ppos, enum request_from from);
 
-
-/* cache_rw.c */
-int cache_write_page_blocks(struct iscsi_cache_page *iet_page);
-int cache_check_read_blocks(struct iscsi_cache_page *iet_page, 
-	unsigned char valid, unsigned char read);
-int cache_read_mpage(struct iscsi_cache *iscsi_cache, 
-	struct iscsi_cache_page **iscsi_pages, int pg_cnt);
-void iscsi_delete_radix_tree(struct iscsi_cache *iscsi_cache);
 
 /* cache_config.c */
 extern int machine_type;

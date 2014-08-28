@@ -27,7 +27,7 @@ extern atomic_t active_list_length;
  * alloc a new page from inactive list
  * if there is no page ,return NULL
  */
-struct iscsi_cache_page* lru_alloc_page(void);
+struct dcache_page* lru_alloc_page(void);
 
 /*
  * check if inactive list is in low, move some active pages into inactive list when it is low
@@ -38,19 +38,19 @@ void check_list_status(void);
 /*
  * add a page into inactive/active list
  */
-void inactive_add_page(struct iscsi_cache_page *cache_page);
-void active_add_page(struct iscsi_cache_page *cache_page);
+void inactive_add_page(struct dcache_page *dcache_page);
+void active_add_page(struct dcache_page *dcache_page);
 
 /*
  * add a page into inactive list or active list, according to page active flag 
  */
-void lru_add_page(struct iscsi_cache_page *cache_page);
+void lru_add_page(struct dcache_page *dcache_page);
 
 /*
  * set a  free page back to inactive list
  * after lru_alloc_page success and the page can not add into radix tree ,call it
  */
-void lru_set_page_back(struct iscsi_cache_page *cache_page);
+void lru_set_page_back(struct dcache_page *dcache_page);
 
 /*
  * used in writeback thread,add temp list to inactive/active list
@@ -61,25 +61,25 @@ void active_writeback_add_list(struct list_head *list);
 /*
  * move one inactive list page to active list,make sure the page is locked before use it
  */
-void move_page_to_active(struct iscsi_cache_page *cache_page);
+void move_page_to_active(struct dcache_page *dcache_page);
 
 /*
  * when a page is referened,call it to change the page state
  * @move : decide whether move the page or not
  */
-void lru_mark_page_accessed(struct iscsi_cache_page *cache_page,int move);
+void lru_mark_page_accessed(struct dcache_page *dcache_page,int move);
 
 /*
  * when read miss/hit ,call it
  */
-void lru_read_miss_handle(struct iscsi_cache_page *cache_page);
-void lru_read_hit_handle(struct iscsi_cache_page *cache_page);
+void lru_read_miss_handle(struct dcache_page *dcache_page);
+void lru_read_hit_handle(struct dcache_page *dcache_page);
 
 /*
  * when write miss/hit ,call it
  */
-void lru_write_miss_handle(struct iscsi_cache_page *cache_page);
-void lru_write_hit_handle(struct iscsi_cache_page *cache_page);
+void lru_write_miss_handle(struct dcache_page *dcache_page);
+void lru_write_hit_handle(struct dcache_page *dcache_page);
 
 /*
  * shrink inactive list and active list thread

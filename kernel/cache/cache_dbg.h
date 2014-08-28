@@ -14,7 +14,7 @@
 #define CACHE_DEBUG_ENABLE_FLAGS
 #endif
 
-#define PFX "[iSCSI_Cache] "
+#define PFX "[Disk_Cache] "
 
 #define eprintk_detail(level, fmt, args...)	\
 	do {								\

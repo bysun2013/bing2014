@@ -263,7 +263,6 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 {
 	int ret;
 	struct iet_volume *volume;
-	struct blockio_data *bio_data;
 	char *args;
 
 	volume = volume_lookup(target, info->lun);
@@ -319,15 +318,6 @@ int volume_add(struct iscsi_target *target, struct volume_info *info)
 
 	volume->l_state = IDEV_RUNNING;
 	atomic_set(&volume->l_count, 0);
-	
-	/* initialize iscsi cache */
-	bio_data = volume->private;
-	/* Here need to be set referring to userspace*/ 
-	volume->iscsi_cache = init_iscsi_cache(bio_data->path, volume->machine_dest, volume->port); 
-	if(!volume->iscsi_cache){
-		ret = -ENOMEM;
-		goto free_args;
-	}
 	
 	list_add_tail(&volume->list, &target->volumes);
 	atomic_inc(&target->nr_volumes);
