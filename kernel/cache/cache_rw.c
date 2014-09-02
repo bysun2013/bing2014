@@ -753,9 +753,8 @@ int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_control
 {
 	int err = 0;
 	int done = 0;
-	int m;
 	struct tio_work *tio_work;
-	struct dcache_page *pages[PVEC_MAX_SIZE];
+	struct dcache_page **pages;
 	pgoff_t wb_index[PVEC_MAX_SIZE];
 	pgoff_t writeback_index = 0;
 	pgoff_t index, done_index;
@@ -770,8 +769,15 @@ int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_control
 	if(!dcache)
 		return 0;
 	
+	pages = kzalloc(PVEC_MAX_SIZE * sizeof (struct dcache_page *), GFP_KERNEL);
+	if (!pages){
+		cache_err("Out of memory!\n");
+		return -ENOMEM;
+	}
 	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
 	if (!tio_work){
+		cache_err("Out of memory!\n");
+		kfree(pages);
 		return -ENOMEM;
 	}
 	
@@ -921,21 +927,25 @@ continue_unlock:
 			goto error;
 		}
 		
+sync_again:
 		/* submit page index of written pages to peer */
-/*		for(m = wrote_index; m < PVEC_MAX_SIZE; m++)
-			wb_index[m]= -1;
-		if(dcache->owner && wrote_index && peer_is_good)
-			cache_send_wrote(dcache->conn, wb_index, PVEC_MAX_SIZE, &req);
-
-		cache_dbg("wait for wrote ack.\n");
-		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
-			cache_warn("timeout when wait for wrote ack.\n");
-			cache_request_dequeue(req);
-		}else{
-			kmem_cache_free(cache_request_cache, req);
+		if(dcache->owner && wrote_index && peer_is_good) {
+			int m;
+			for(m = wrote_index; m < PVEC_NORMAL_SIZE; m++)
+				wb_index[m]= -1;
+			
+			cache_send_wrote(dcache->conn, wb_index, m, &req);
+			cache_dbg("wait for wrote ack.\n");
+			if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
+				cache_warn("timeout when wait for wrote ack.\n");
+				cache_request_dequeue(req);
+				goto sync_again;
+			}else{
+				kmem_cache_free(cache_request_cache, req);
+			}
+			cache_dbg("ok, get wrote ack, go on!\n");			
 		}
-		cache_dbg("ok, get wrote ack, go on!\n");
-*/
+
 		inactive_writeback_add_list(&list_inactive);
 		active_writeback_add_list(&list_active);
 	}	
@@ -957,6 +967,8 @@ continue_unlock:
 error:
 	if(tio_work)
 		kfree(tio_work);
+	if(pages)
+		kfree(pages);
 	return err;
 }
 
@@ -990,7 +1002,7 @@ long writeback_single(struct dcache *dcache, unsigned int mode,
 	BUG_ON(mpd.bio != NULL);
 
 	if(unlikely(ret)){
-		cache_err("An error has occurred when writeback.\n");
+		cache_err("An error has occurred when writeback, err = %d\n", ret);
 	}
 	
 	return (pages_to_write - wbc.nr_to_write);

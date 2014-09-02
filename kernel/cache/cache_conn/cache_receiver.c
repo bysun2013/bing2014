@@ -25,7 +25,6 @@ static int decode_header(struct cache_connection *conn, void *header, struct pac
 	return 0;
 }
 
-
 static int cache_recv_short(struct socket *sock, void *buf, size_t size, int flags)
 {
 	mm_segment_t oldfs;
@@ -189,21 +188,29 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 	
 	cache_dbg("write received data into cache.\n");
 	return 0;
-};
+}
 
-/* use msock to receive writeback index */
+/* 
+* use msock to receive writeback index 
+*/
 static int receive_wrote(struct cache_connection *connection, struct packet_info *pi)
 {
 	struct dcache *dcache = connection->dcache;
 	struct p_block_wrote *p = pi->data;
 	unsigned int size = pi->size;
 	int count = size/sizeof(pgoff_t);
-	pgoff_t data[PVEC_MAX_SIZE];
+	pgoff_t *data;
 	pgoff_t *pages_index;
 	u32 peer_seq = be32_to_cpu(p->seq_num);
 	int err, i;
-	
-	cache_alert("begin to receive wrote data.\n");
+
+	data = (pgoff_t *)kzalloc(size, GFP_KERNEL);
+	if (!data){
+		cache_err("Out of memory!\n");
+		return -ENOMEM;
+	}
+
+	cache_dbg("begin to receive wrote data.\n");
 	
 	err = cache_recv_all_warn(&connection->meta, data, size);
 	if (err) {
@@ -212,7 +219,7 @@ static int receive_wrote(struct cache_connection *connection, struct packet_info
 	}
 	
 	pages_index = data;
-	for(i=0; i<count; i++){
+	for(i=0; i < count; i++) {
 		pgoff_t  index = pages_index[i];
 		if(index == -1)
 			break;
@@ -225,9 +232,11 @@ static int receive_wrote(struct cache_connection *connection, struct packet_info
 
 	cache_send_wrote_ack(connection,peer_seq);
 
-	cache_alert("delete wrote data from cache.\n");
+	cache_dbg("delete wrote data from cache.\n");
+
+	kfree(data);
 	return err;
-};
+}
 
 static int got_block_ack(struct cache_connection *connection, struct packet_info *pi)
 {
@@ -243,7 +252,7 @@ static int got_block_ack(struct cache_connection *connection, struct packet_info
 
 	cache_dbg("receive data ack.\n");
 	return 0;
-};
+}
 
 static int got_wrote_ack(struct cache_connection *connection, struct packet_info *pi)
 {
@@ -259,7 +268,7 @@ static int got_wrote_ack(struct cache_connection *connection, struct packet_info
 
 	cache_dbg("receive wrote ack.\n");
 	return 0;
-};
+}
 
 static const char *cmdname(enum cache_packet cmd)
 {

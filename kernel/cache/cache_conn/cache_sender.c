@@ -312,7 +312,7 @@ int cache_send_wrote(struct cache_connection *connection,
 	struct p_block_wrote *p;
 	struct socket * socket;
 	int err;
-	int size = sizeof(pgoff_t)*count;
+	int size = sizeof(pgoff_t) * count;
 	u32 seq_num;
 	
 	sock = &connection->meta;

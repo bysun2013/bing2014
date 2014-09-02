@@ -54,7 +54,7 @@ struct p_block_ack {
 
 struct p_block_wrote {
 	u32	    seq_num;
-	u32	    wrote;
+	u32	    pad;
 } __packed;
 
 struct p_wrote_ack {

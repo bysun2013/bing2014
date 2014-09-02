@@ -57,8 +57,8 @@ static int over_high_watermark(struct dcache * dcache)
 	long inactive_pages = atomic_read(&inactive_list_length);
 	long active_pages = atomic_read(&active_list_length);
 	
-	/* if clean pages is above 1/16 of total pages, do nothing */
-	if((inactive_pages + active_pages) > dcache_total_pages >> 4)
+	/* if clean pages is above 1/8 of total pages, do nothing */
+	if((inactive_pages + active_pages) > dcache_total_pages >> 3)
 		return 0;
 	if(dirty_pages * dcache_total_volume < dcache_total_pages)
 		return 0;
@@ -328,6 +328,8 @@ again:
 	dcache_page= dcache_find_get_page(dcache, page_index);
 
 	if(dcache_page == NULL){	/* Write Miss */
+		if(dcache->owner)
+			decrease_dirty_ratio(dcache);
 		dcache_page=dcache_write_get_free_page(dcache);
 		dcache_page->dcache=dcache;
 		dcache_page->index=page_index;
@@ -569,12 +571,9 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 
 	cache_ignore("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
 	
-	if(dcache->owner)
-		decrease_dirty_ratio(dcache);
-	
-	//if(from == REQUEST_FROM_OUT && peer_is_good) {
-	//	cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);		
-	//}
+	if(from == REQUEST_FROM_OUT && peer_is_good) {
+		cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);		
+	}
 	
 	while (size && tio_index < pg_cnt) {
 			unsigned int current_bytes, bytes = PAGE_SIZE;
@@ -607,7 +606,7 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			
 			tio_index++;
 	}
-	/*
+	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		cache_dbg("wait for data ack.\n");
 		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
@@ -617,7 +616,7 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			kmem_cache_free(cache_request_cache, req);
 		cache_dbg("ok, get data ack, go on!\n"); 		
 	}	
-	*/
+	
 	return err;
 }
 
@@ -703,7 +702,7 @@ void* init_volume_dcache(const char *path, int owner, int port)
 	dcache->owner = vol_owner;
 	dcache->origin_owner = vol_owner;
 
-	//dcache->conn = cache_conn_init(dcache);
+	dcache->conn = cache_conn_init(dcache);
 
 	dcache_total_volume++;
 	
@@ -733,7 +732,7 @@ void del_volume_dcache(void *volume_dcachep)
 	
 	writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 
-	//cache_conn_exit(dcache);
+	cache_conn_exit(dcache);
 	
 	dcache_delete_radix_tree(dcache);
 	

@@ -37,13 +37,12 @@ extern unsigned long dcache_total_pages;
 extern unsigned int dcache_total_volume;
 extern struct kmem_cache *cache_request_cache;
 
-#define PVEC_SIZE		64
 #define ADDR_LEN 		16
 #define PATH_LEN 		32
 
 /* dynamic writeback, to improve performance */
 #define PVEC_NORMAL_SIZE		16
-#define PVEC_MAX_SIZE           64
+#define PVEC_MAX_SIZE           512
 
 enum request_from{
 	REQUEST_FROM_PEER = 0,
@@ -56,7 +55,6 @@ enum page_site {
 	radix,     /*radix tree*/
 	temp,     /*temp list*/
 };
-	
 
 struct dcache_page{
 	/* initialize when isolated, no lock needed*/
