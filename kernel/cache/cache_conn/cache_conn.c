@@ -63,13 +63,17 @@ static void cache_free_socket(struct cache_socket *socket)
 	free_page((unsigned long) socket->rbuf);
 }
 
-void cache_free_sock(struct cache_socket * cache_socket)
+void cache_free_sock(struct cache_socket *cache_socket)
 {
+	if(!cache_socket)
+		return;
 	if (cache_socket->socket) {
 		mutex_lock(&cache_socket->mutex);
-		kernel_sock_shutdown(cache_socket->socket, SHUT_RDWR);
-		sock_close(cache_socket->socket);
-		cache_socket->socket = NULL;
+		if (cache_socket->socket) {
+			kernel_sock_shutdown(cache_socket->socket, SHUT_RDWR);
+			sock_close(cache_socket->socket);
+			cache_socket->socket = NULL;			
+		}
 		mutex_unlock(&cache_socket->mutex);
 	}
 }
@@ -112,12 +116,11 @@ restart:
 
 	thi->task = NULL;
 	thi->t_state = NONE;
-	smp_mb();
-	complete_all(&thi->stop);
+	complete(&thi->stop);
+	
 	spin_unlock_irqrestore(&thi->t_lock, flags);
-
+	
 	//module_put(THIS_MODULE);
-	cache_info("Terminating\n");
 
 	return retval;
 }
@@ -146,7 +149,8 @@ int cache_thread_start(struct cache_thread *thi)
 		if (thi->connection)
 			kref_get(&thi->connection->kref);
 		
-*/
+		*/
+		init_completion(&thi->start);
 		init_completion(&thi->stop);
 		thi->t_state = RUNNING;
 		spin_unlock_irqrestore(&thi->t_lock, flags);
@@ -160,8 +164,9 @@ int cache_thread_start(struct cache_thread *thi)
 /*
 			if (thi->connection)
 				kref_put(&thi->connection->kref, cache_destroy_connection);
+
+			module_put(THIS_MODULE);
 */
-			//module_put(THIS_MODULE);
 			return false;
 		}
 		spin_lock_irqsave(&thi->t_lock, flags);
@@ -189,7 +194,8 @@ void _cache_thread_stop(struct cache_thread *thi, int restart, int wait)
 	unsigned long flags;
 
 	enum cache_thread_state ns = restart ? RESTARTING : EXITING;
-	cache_alert("begin to kill thread %s\n", thi->name);
+	cache_dbg("begin to kill thread %s\n", thi->name);
+
 	/* may be called from state engine, holding the req lock irqsave */
 	spin_lock_irqsave(&thi->t_lock, flags);
 
@@ -210,11 +216,12 @@ void _cache_thread_stop(struct cache_thread *thi, int restart, int wait)
 		smp_mb();
 		init_completion(&thi->stop);
 	}
+	
 	spin_unlock_irqrestore(&thi->t_lock, flags);
 
 	if (wait)
 		wait_for_completion(&thi->stop);
-	cache_alert("Thread %s exit.\n", thi->name);
+	cache_info("Thread %s exit.\n", thi->name);
 }
 
 static struct socket *cache_wait_for_connect(struct cache_connection *connection, struct accept_wait_data *ad)
@@ -543,7 +550,10 @@ randomize:
 //	msock.socket->sk->sk_priority = TC_PRIO_INTERACTIVE;
 	
 	sock.socket->sk->sk_sndtimeo =
-	sock.socket->sk->sk_rcvtimeo = ping_timeo*HZ;
+	sock.socket->sk->sk_rcvtimeo = ping_timeo*4*HZ/10;
+
+	msock.socket->sk->sk_rcvtimeo =
+	msock.socket->sk->sk_sndtimeo = ping_timeo*HZ;
 
 	/* NOT YET ...
 	 * sock.socket->sk->sk_sndtimeo = connection->net_conf->timeout*HZ/10;
@@ -610,14 +620,11 @@ int cache_receiver(struct cache_thread *thi)
 		h = conn_connect(connection);
 	} while (h == -1 && count --);
 	
-	if (h == 0){
-		cache_dbg("Good, it works.\n");
+	if (h == 0) {
 		cache_thread_start(&connection->asender);
+		complete(&thi->start);
 		cache_socket_receive(connection);
 	}
-	
-	cache_free_sock(&connection->data);
-	cache_info("receiver terminated\n");
 	
 	return 0;
 }
@@ -687,7 +694,7 @@ static struct cache_connection *cache_conn_create(struct dcache *dcache)
 
 	cache_thread_init(&connection->receiver, cache_receiver, "dreceiver");
 	connection->receiver.connection = connection;
-	cache_thread_init(&connection->asender, cache_mreceiver, "wreceiver");
+	cache_thread_init(&connection->asender, cache_mreceiver, "mreceiver");
 	connection->asender.connection = connection;
 
 	cache_thread_start(&connection->receiver);
@@ -695,22 +702,16 @@ static struct cache_connection *cache_conn_create(struct dcache *dcache)
 	return connection;
 
 fail:
-	kfree(connection->current_epoch);
 	cache_free_socket(&connection->meta);
 	cache_free_socket(&connection->data);
 	kfree(connection);
 	return NULL;
 }
 
-
 static void cache_conn_destroy(struct dcache *dcache)
 {
 	struct cache_connection *cache_conn;
-/*
-	if (atomic_read(&cache_conn->current_epoch->epoch_size) !=  0)
-		cache_err("epoch_size:%d\n", atomic_read(&cache_conn->current_epoch->epoch_size));
-	kfree(cache_conn->current_epoch);
-*/
+
 	if(!dcache)
 		return;
 	
@@ -718,14 +719,17 @@ static void cache_conn_destroy(struct dcache *dcache)
 		return;
 
 	/* FIXME thread crash when exit */
-	cache_thread_stop_nowait(&cache_conn->asender);
-	cache_thread_stop_nowait(&cache_conn->receiver);
+	cache_thread_stop(&cache_conn->receiver);
+	cache_thread_stop(&cache_conn->asender);
 	
 	conn_disconnect(cache_conn);
 	cache_free_socket(&cache_conn->meta);
 	cache_free_socket(&cache_conn->data);
+	
 	kfree(cache_conn);
 	dcache->conn = NULL;
+	
+	return;
 }
 
 struct cache_connection *cache_conn_init(struct dcache *dcache)
@@ -735,6 +739,9 @@ struct cache_connection *cache_conn_init(struct dcache *dcache)
 	cache_dbg("Start connection between caches!\n");
 	
 	conn = cache_conn_create(dcache);
+	
+	if(peer_is_good)
+		wait_for_completion(&conn->receiver.start);
 	
 	return conn;
 }

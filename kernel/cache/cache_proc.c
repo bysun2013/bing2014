@@ -7,7 +7,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
-#include "cache.h"
+#include "cache_def.h"
 #include "cache_lru.h"
 
 extern atomic_t inactive_list_length;

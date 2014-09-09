@@ -7,16 +7,8 @@
 #ifndef CACHE_WB_H
 #define CACHE_WB_H
 
-#include "cache.h"
-
-#define DCACHE_TAG_DIRTY	0
-#define DCACHE_TAG_WRITEBACK	1
-#define DCACHE_TAG_TOWRITE	2
-
-enum iscsi_wb_sync_modes {
-	DCACHE_WB_SYNC_NONE,	/* Don't wait on anything */
-	DCACHE_WB_SYNC_ALL,	/* Wait on every mapping */
-};
+#include "cache_def.h"
+#include "cache_rw.h"
 
 /*
  * why some writeback work was initiated
@@ -28,25 +20,6 @@ enum cache_wb_reason {
 	DCACHE_WB_REASON_FORKER_THREAD,
 
 	DCACHE_WB_REASON_MAX,
-};
-
-/*
- * A control structure which tells the writeback code what to do.  These are
- * always on the stack, and hence need no locking.  They are always initialised
- * in a manner such that unspecified fields are set to zero.
- */
-struct cache_writeback_control {
-	long nr_to_write;		/* Write this many pages, and decrement
-					   this for each page written */
-					   	
-	loff_t range_start;
-	loff_t range_end;
-
-	enum iscsi_wb_sync_modes mode;
-
-	unsigned for_kupdate:1;		/* A kupdate writeback */
-	unsigned for_background:1;	/* A background writeback */
-	unsigned range_cyclic:1;	/* range_start is cyclic */
 };
 
 /*
@@ -69,8 +42,6 @@ struct cache_writeback_work {
 
 extern struct task_struct *dcache_wb_forker;
 
-void dcache_set_page_tag(struct dcache_page *dcache_page, unsigned int tag);
-long writeback_single(struct dcache *dcache, unsigned int mode, long pages_to_write, bool cyclic);
 bool over_bground_thresh(struct dcache *dcache);
 void cache_wakeup_timer_fn(unsigned long data);
 void wakeup_cache_flusher(struct dcache *dcache);

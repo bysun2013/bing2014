@@ -11,7 +11,7 @@
 #include <linux/hash.h>
 #include <asm/atomic.h>
 
-#include "cache.h"
+#include "cache_def.h"
 #include "cache_wb.h"
 #include "cache_lru.h"
 
@@ -433,7 +433,6 @@ void dcache_delete_radix_tree(struct dcache *dcache)
 	
 	while (true) {
 		int i;
-
 		nr_pages = dcache_find_get_pages(dcache, index,
 			      min(end - index, (pgoff_t)DEL_MAX_SIZE-1) + 1, pages);
 		if (nr_pages == 0)
@@ -738,7 +737,7 @@ confused:
 	
 	mpd->bio = bio;
 	
-	/* although I believe the minimal block should be 4KB, but I must do it */ 
+	/* although I believe the minimal block should be 4KB, but I must check it */ 
 	err = dcache_write_page_blocks(dcache_page);
 	
 	return err;
@@ -748,7 +747,7 @@ confused:
 * multi-pages are merged to one submit, to imrove efficiency
 * return nr of wrote pages 
 */
-int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_control *wbc,
+static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_control *wbc,
 			struct cache_mpage_data *mpd)
 {
 	int err = 0;

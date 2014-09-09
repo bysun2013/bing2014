@@ -1,3 +1,11 @@
+/*
+ * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
+ *
+ * Released under the terms of the GNU GPL v2.0.
+ *
+ * WARNNING
+ * 	This file is not used now
+ */
 
 #include "cache_conn.h"
 
@@ -168,5 +176,41 @@ static int _cache_send_ack(struct cache_peer_device *peer_device, enum cache_pac
 	return cache_send_command(peer_device, sock, cmd, sizeof(*p), NULL, 0);
 }
 
+static int _cache_no_send_page(struct cache_connection*conn, struct page *page,
+			      int offset, size_t size, unsigned msg_flags)
+{
+	struct socket *socket;
+	void *addr;
+	int err;
+
+	socket = conn->data.socket;
+	addr = kmap(page) + offset;
+	err = cache_send_all(conn, socket, addr, size, msg_flags);
+	kunmap(page);
+	if(err){
+		cache_err("Error occurs when send data.\n");
+	}
+	return err;
+}
+
+
+static int _cache_send_pages(struct cache_connection *conn, struct page **pages, 
+				int count, size_t size, sector_t sector)
+{
+	int i;
+	int len;
+	/* hint all but last page with MSG_MORE */
+	for (i = 0; i < count; i++){
+		int err;
+		len = min_t(int, PAGE_SIZE, size);
+		err = _cache_no_send_page(conn, pages[i],
+					 0, len,
+					 i == count - 1 ? 0 : MSG_MORE);
+		if (err)
+			return err;
+		size -=len;
+	}
+	return 0;
+}
 
 

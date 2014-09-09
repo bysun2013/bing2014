@@ -9,7 +9,7 @@
 
 #include <linux/mm_types.h>
 #include <linux/list.h>
-#include "cache.h"
+#include "cache_def.h"
 
 extern atomic_t inactive_list_length;
 extern atomic_t active_list_length;

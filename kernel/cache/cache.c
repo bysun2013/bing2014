@@ -17,26 +17,23 @@
 #include <asm/page.h>
 #include <linux/list.h>
 
+#include "cache_def.h"
 #include "cache.h"
 #include "cache_rw.h"
 #include "cache_wb.h"
 #include "cache_lru.h"
+#include "cache_proc.h"
+#include "cache_config.h"
 
-bool peer_is_good = true;
+
+#define CACHE_VERSION "0.99"
+
+/* by default, peer is not good */
+bool peer_is_good = false;
 
 static int ctr_major_cache;
 static char ctr_name_cache[] = "ietctl_cache";
 extern struct file_operations ctr_fops_cache;
-
-
-extern int cache_procfs_init(void);
-extern void cache_procfs_exit(void);
-
-/* param of reserved memory at boot */
-extern unsigned int iet_mem_size;
-extern char *iet_mem_virt;
-/* preferred starting address of the region */
-//extern unsigned long iscsi_mem_goal; 
 
 unsigned long dcache_total_pages;
 unsigned int dcache_total_volume;
@@ -124,7 +121,7 @@ static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache)
 				schedule_timeout(HZ >> 3);
 				__set_current_state(TASK_RUNNING);				
 			}
-		}else{
+		} else {
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ >> 3);
 			__set_current_state(TASK_RUNNING);
@@ -134,6 +131,7 @@ static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache)
 	if(!dcache_page)
 		cache_dbg("%s: Cache is used up! dirty_pages:%d\n", 
 			dcache->path, atomic_read(&dcache->dirty_pages));
+	
 	return dcache_page;
 }
 
@@ -497,7 +495,7 @@ again:
 					cache_ignore("data to read isn't 0xff, try to read from disk.\n");
 					
 					err=dcache_check_read_blocks(dcache_page, dcache_page->valid_bitmap, 0xff);
-					if(unlikely(err)){
+					if(unlikely(err)) {
 						cache_err("Error occurs when read missed blocks.\n");
 						unlock_page(dcache_page->page);
 						kfree(dcache_pages);
@@ -542,7 +540,7 @@ again:
 
 		for(i=0; i < page_to_read; i++) {
 			dcache_read_page(dcache_pages[i], pages, pg_cnt, size, ppos);
-			lru_read_miss_handle(dcache_pages[i]);		
+			lru_read_miss_handle(dcache_pages[i]);
 			unlock_page(dcache_pages[i]->page);
 			atomic_inc(&dcache->total_pages);
 		}
@@ -729,8 +727,9 @@ void del_volume_dcache(void *volume_dcachep)
 		kthread_stop(dcache->task);
 		wait_for_completion(&dcache->wb_completion);
 	}
-	
-	writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
+
+	if(dcache->owner)
+		writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 
 	cache_conn_exit(dcache);
 	

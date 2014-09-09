@@ -180,23 +180,6 @@ int send_first_packet(struct cache_connection *connection, struct cache_socket *
 	return conn_send_command(connection, sock, cmd, 0, NULL, 0);
 }
 
-static int _cache_no_send_page(struct cache_connection*conn, struct page *page,
-			      int offset, size_t size, unsigned msg_flags)
-{
-	struct socket *socket;
-	void *addr;
-	int err;
-
-	socket = conn->data.socket;
-	addr = kmap(page) + offset;
-	err = cache_send_all(conn, socket, addr, size, msg_flags);
-	kunmap(page);
-	if(err){
-		cache_err("Error occurs when send data.\n");
-	}
-	return err;
-}
-
 static int _cache_send_page(struct cache_connection*conn, struct page *page,
 		    int offset, size_t size, unsigned msg_flags)
 {
@@ -230,25 +213,6 @@ static int _cache_send_page(struct cache_connection*conn, struct page *page,
 		err = 0;
 	
 	return err;
-}
-
-static int _cache_send_pages(struct cache_connection *conn, struct page **pages, 
-				int count, size_t size, sector_t sector)
-{
-	int i;
-	int len;
-	/* hint all but last page with MSG_MORE */
-	for (i = 0; i < count; i++){
-		int err;
-		len = min_t(int, PAGE_SIZE, size);
-		err = _cache_no_send_page(conn, pages[i],
-					 0, len,
-					 i == count - 1 ? 0 : MSG_MORE);
-		if (err)
-			return err;
-		size -=len;
-	}
-	return 0;
 }
 
 static int _cache_send_zc_pages(struct cache_connection *conn, struct page **pages, 

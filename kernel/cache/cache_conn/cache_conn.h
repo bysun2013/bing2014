@@ -25,7 +25,7 @@
 #include <linux/socket.h>
 #include <linux/tcp.h>
 
-#include "../cache.h"
+#include "../cache_def.h"
 #include "../cache_dbg.h"
 
 
@@ -127,6 +127,7 @@ struct cache_socket{
 struct cache_thread{
 	spinlock_t t_lock;
 	struct task_struct *task;
+	struct completion start;
 	struct completion stop;
 	enum cache_thread_state t_state;
 	int (*function) (struct cache_thread *);

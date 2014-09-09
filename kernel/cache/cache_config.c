@@ -9,7 +9,9 @@
 #include <linux/module.h>
 #include <linux/in.h>
 #include <linux/inet.h>
-#include "cache.h"
+
+#include "cache_def.h"
+#include "iet_cache_u.h"
 
 int machine_type;
 char echo_host[PATH_LEN]="10.17.11.1";

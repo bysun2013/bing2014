@@ -4,6 +4,8 @@
  * Released under the terms of the GNU GPL v2.0.
  */
 
+#include "../cache_def.h"
+#include "../cache.h"
 #include "cache_conn.h"
 
 static int decode_header(struct cache_connection *conn, void *header, struct packet_info *pi)
@@ -343,21 +345,20 @@ cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 		}
 	}
 	
-	return;
-	
 err_out:
-	cache_err("Error occurs when receive on socket.\n");
 	return;
 }
 
-/* For now, it only deal with sync of writeback index */
+/*
+* it deal with sync of writeback index and all ack 
+*/
 int cache_msocket_receive(struct cache_connection *connection)
 {
 	struct packet_info pi;
 	size_t shs; /* sub header size */
 	int err = 0;
 
-	while (get_t_state(&connection->receiver) == RUNNING) {
+	while (get_t_state(&connection->asender) == RUNNING) {
 		struct data_cmd *cmd;
 
 		err = cache_recv_header(connection, &connection->meta, &pi);
@@ -380,7 +381,7 @@ int cache_msocket_receive(struct cache_connection *connection)
 				 cmdname(pi.cmd), pi.size);
 			goto err_out;
 		}
-cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
+		cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 		if (shs) {
 			err = cache_recv_all_warn(&connection->meta, pi.data, shs);
 			if (err)
@@ -402,5 +403,4 @@ err_out:
 	cache_err("Error occurs when receive on msocket.\n");
 	return err;
 }
-
 

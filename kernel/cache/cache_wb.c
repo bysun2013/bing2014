@@ -5,28 +5,20 @@
  */
  
 #include <linux/freezer.h>
-
-#include "cache.h"
 #include "cache_wb.h"
 
 struct task_struct *dcache_wb_forker;
 
-/*
- * Start background writeback (via writeback threads) at this percentage
- */
+/* Start background writeback (via writeback threads) at this percentage */
 unsigned long cache_dirty_background_ratio = 10;
-/*
- * The interval between `kupdate'-style writebacks
- */
+
+/* The interval between `kupdate'-style writebacks */
 unsigned int cache_dirty_writeback_interval = 5 * 100; /* centiseconds */
-/*
- * The longest time for which data is allowed to remain dirty
- */
+
+/* The longest time for which data is allowed to remain dirty */
 unsigned int cache_dirty_expire_interval = 30 * 100; /* centiseconds */
 
-/*
-* check whether ratio dirty pages is over the thresh
-*/
+/* check whether ratio dirty pages is over the thresh */
 bool over_bground_thresh(struct dcache *dcache)
 {
 	unsigned long dirty;
@@ -326,7 +318,8 @@ static int writeback_all(void)
 	mutex_lock(&dcache_list_lock);
 	list_for_each_entry(dcache, &dcache_list, list) {
 		mutex_unlock(&dcache_list_lock);
-		writeback_single(dcache,  DCACHE_WB_SYNC_ALL, LONG_MAX, false);
+		if(dcache->owner)
+			writeback_single(dcache,  DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 		mutex_lock(&dcache_list_lock);
 	}
 	mutex_unlock(&dcache_list_lock);
