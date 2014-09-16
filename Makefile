@@ -167,7 +167,7 @@ install-files: install-usr install-etc install-doc install-kernel
 
 install: install-files depmod
 
-install-kernel: kernel/iscsi_trgt.ko kernel/cache/iscsi_caches.ko
+install-kernel: kernel/iscsi_trgt.ko kernel/cache/dcache.ko
 	@if [ -d $(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/$(KVER) ]; then \
 		if [ -f /etc/debian_version ]; then \
 			find $(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/$(KVER) \
@@ -179,10 +179,21 @@ install-kernel: kernel/iscsi_trgt.ko kernel/cache/iscsi_caches.ko
 				-execdir mv \{\} \{\}.orig \;; \
 		fi \
 	fi
+	@if [ -d $(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/$(KVER) ]; then \
+		if [ -f /etc/debian_version ]; then \
+			find $(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/$(KVER) \
+				-name dcache.ko -type f \
+				-exec /bin/sh -c "dpkg-divert --rename {}" \;; \
+		else \
+			find $(DESTDIR)$(INSTALL_MOD_PATH)/lib/modules/$(KVER) \
+				-name dcache.ko -type f \
+				-execdir mv \{\} \{\}.orig \;; \
+		fi \
+	fi	
 	@install -vD -m 644 kernel/iscsi_trgt.ko \
 		$(DESTDIR)$(INSTALL_MOD_PATH)$(KMOD)/iscsi/iscsi_trgt.ko
-	@install -vD -m 644 kernel/cache/iscsi_caches.ko \
-		$(DESTDIR)$(INSTALL_MOD_PATH)$(KMOD)/iscsi/iscsi_caches.ko
+	@install -vD -m 644 kernel/cache/dcache.ko \
+		$(DESTDIR)$(INSTALL_MOD_PATH)$(KMOD)/iscsi/dcache.ko
 
 install-usr: usr/ietd usr/ietadm  usr_cache/ietd_cache usr_cache/ietadm_cache
 	@install -vD usr/ietd $(DESTDIR)/usr/sbin/ietd

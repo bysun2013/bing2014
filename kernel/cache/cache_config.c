@@ -1,8 +1,26 @@
 /*
+ * cache_config.c
+ *
+ * file operations for char device, used to pass parameters
+ *
+ * Copyright (C) 2014-2015 Gongchen Li <ligongchen@163.com>
  * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
  *
- * Released under the terms of the GNU GPL v2.0.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public Licens
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
  */
+
  
 #include <linux/proc_fs.h>
 #include <asm/uaccess.h>
@@ -137,6 +155,7 @@ static int lun_update(unsigned long ptr)
 	return 0;
 
 }
+
 /* called when peer recovery */
 static void hb_restore_owner(void)
 {
@@ -150,6 +169,7 @@ static void hb_restore_owner(void)
 	}
 	mutex_unlock(&dcache_list_lock);
 }
+
 /* called when peer crash */
 static void hb_change_state(void)
 {
@@ -163,9 +183,10 @@ static void hb_change_state(void)
 	}
 	mutex_unlock(&dcache_list_lock);
 }
-/**
+
+/*
 *	$0 represent peer work well
-	$1 represent peer crash 
+*	$1 represent peer crash 
 */
 static int hb_report_peer_state(unsigned long ptr)
 {
@@ -248,7 +269,7 @@ static int release(struct inode *i __attribute__((unused)),
 	return 0;
 }
 
-struct file_operations ctr_fops_cache = {
+struct file_operations dcache_ctr_fops = {
 	.owner		= THIS_MODULE,
 	.unlocked_ioctl	= ioctl,
 	.compat_ioctl	= ioctl,

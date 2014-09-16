@@ -18,7 +18,9 @@
 
 #include "iet_cache.h"
 
-#define CTL_DEVICE	"/dev/cache_ietctl"
+#define CTL_DEVICE	"/dev/dcache_ctl"
+#define CTL_DEVICE_NAME	"dcache_ctl"
+
 
 extern int ctrl_fd_cache;
 
@@ -43,7 +45,7 @@ static int cache_ctrdev_open(void)
 		if (sscanf(buf, "%d %s", &devn, devname) != 2) {
 			continue;
 		}
-		if (!strcmp(devname, "ietctl_cache")) {
+		if (!strcmp(devname, CTL_DEVICE_NAME)) {
 			break;
 		}
 		devn = 0;
@@ -51,8 +53,7 @@ static int cache_ctrdev_open(void)
 
 	fclose(f);
 	if (!devn) {
-		log_error("cannot find ietctl_cache in /proc/devices - "
-		     "make sure the kernel module is loaded");
+		log_error("cannot find %s in /proc/devices - make sure the kernel module is loaded", CTL_DEVICE_NAME);
 		return -1;
 	}
 
@@ -160,3 +161,4 @@ struct cache_kernel_interface cache_ioctl_ki = {
 };
 
 struct cache_kernel_interface *cache_ki = &cache_ioctl_ki;
+

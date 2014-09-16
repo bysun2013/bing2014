@@ -1,7 +1,23 @@
 /*
+ * cache.c
+ *
+ * handle dcache Read/Write operations
+ *
  * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
  *
- * Released under the terms of the GNU GPL v2.0.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public Licens
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
  */
  
 #include <linux/module.h>
@@ -28,12 +44,12 @@
 
 #define CACHE_VERSION "0.99"
 
-/* by default, peer is not good */
-bool peer_is_good = false;
+/* by default, peer is good */
+bool peer_is_good = true;
 
 static int ctr_major_cache;
-static char ctr_name_cache[] = "ietctl_cache";
-extern struct file_operations ctr_fops_cache;
+static char dcache_ctr_name[] = "dcache_ctl";
+extern struct file_operations dcache_ctr_fops;
 
 unsigned long dcache_total_pages;
 unsigned int dcache_total_volume;
@@ -568,11 +584,11 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 	pgoff_t page_index;
 
 	cache_ignore("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
-	
+/*	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);		
 	}
-	
+*/	
 	while (size && tio_index < pg_cnt) {
 			unsigned int current_bytes, bytes = PAGE_SIZE;
 			unsigned int  skip_blk=0;
@@ -604,7 +620,7 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			
 			tio_index++;
 	}
-	
+/*	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		cache_dbg("wait for data ack.\n");
 		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
@@ -614,7 +630,7 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			kmem_cache_free(cache_request_cache, req);
 		cache_dbg("ok, get data ack, go on!\n"); 		
 	}	
-	
+*/	
 	return err;
 }
 
@@ -700,7 +716,7 @@ void* init_volume_dcache(const char *path, int owner, int port)
 	dcache->owner = vol_owner;
 	dcache->origin_owner = vol_owner;
 
-	dcache->conn = cache_conn_init(dcache);
+	//dcache->conn = cache_conn_init(dcache);
 
 	dcache_total_volume++;
 	
@@ -731,7 +747,7 @@ void del_volume_dcache(void *volume_dcachep)
 	if(dcache->owner)
 		writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 
-	cache_conn_exit(dcache);
+	//cache_conn_exit(dcache);
 	
 	dcache_delete_radix_tree(dcache);
 	
@@ -757,7 +773,7 @@ static int dcache_request_init(void)
 static void dcache_global_exit(void)
 {
 
-	unregister_chrdev(ctr_major_cache, ctr_name_cache);
+	unregister_chrdev(ctr_major_cache, dcache_ctr_name);
 	
 	cache_procfs_exit();
 
@@ -794,7 +810,7 @@ static int dcache_global_init(void)
 	
 	cache_dbg("The size of struct dcache_page is %d.\n", dcache_page_size);
 
-	if ((ctr_major_cache= register_chrdev(0, ctr_name_cache, &ctr_fops_cache)) < 0) {
+	if ((ctr_major_cache= register_chrdev(0, dcache_ctr_name, &dcache_ctr_fops)) < 0) {
 		cache_alert("failed to register the control device %d\n", ctr_major_cache);
 		err = ctr_major_cache;
 		goto error;
@@ -861,6 +877,7 @@ module_exit(dcache_global_exit);
 MODULE_VERSION(CACHE_VERSION);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Disk Cache");
-MODULE_AUTHOR("Bing Sun <b.y.sun.cn@gmail.com>");
+MODULE_AUTHOR("Hongjun Dai <dahogn@sdu.edu.cn>");
 MODULE_AUTHOR("Hearto <hearto1314@gmail.com>");
+MODULE_AUTHOR("Bing Sun <b.y.sun.cn@gmail.com>");
 

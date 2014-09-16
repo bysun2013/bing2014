@@ -1,8 +1,25 @@
 /*
+ * cache_conn/cache_conn.c
+ *
+ * connection establishment between peers
+ *
  * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
  *
- * Released under the terms of the GNU GPL v2.0.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public Licens
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
  */
+
 
 #include "cache_conn.h"
 
@@ -424,7 +441,7 @@ static int conn_connect(struct cache_connection *connection)
 
 //	struct net_conf *nc;
 //	int timeout, h, ok;
-	int ping_timeo = 20;
+	int ping_timeo = 10;
 
 	int h=0, count=0;
 
@@ -608,22 +625,28 @@ static void conn_disconnect(struct cache_connection *connection)
 	cache_alert("Connection closed\n");
 }
 
+/*
+* when peer host crash, wait for peer recover
+*/
 int cache_receiver(struct cache_thread *thi)
 {
 	struct cache_connection *connection = thi->connection;
-	int h;
-	int count = 10;
-	cache_info("receiver (re)started\n");
+	int err;
+	cache_info("receiver thread (re)started\n");
 
+retry:
 	do {
 		cache_dbg("Try to establish connection.\n");
-		h = conn_connect(connection);
-	} while (h == -1 && count --);
+		err = conn_connect(connection);
+	} while (err == -1);
 	
-	if (h == 0) {
+	if (err == 0) {
 		cache_thread_start(&connection->asender);
 		complete(&thi->start);
 		cache_socket_receive(connection);
+		
+		if(!peer_is_good)
+			goto retry;
 	}
 	
 	return 0;
@@ -633,6 +656,8 @@ int cache_mreceiver(struct cache_thread *thi)
 {
 	int err;
 	struct cache_connection *connection = thi->connection;
+
+	cache_info("mreceiver thread (re)started\n");
 	
 	err=cache_msocket_receive(connection);
 	

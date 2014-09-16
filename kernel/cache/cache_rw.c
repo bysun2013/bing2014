@@ -1,8 +1,25 @@
 /*
+ * cache_rw.c
+ *
+ * handler for disk read/write
+ *
  * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
  *
- * Released under the terms of the GNU GPL v2.0.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public Licens
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ *
  */
+
 
 #include <linux/blkdev.h>
 #include <linux/module.h>
@@ -921,30 +938,30 @@ continue_unlock:
 			wait_for_completion(&tio_work->tio_complete);
 		
 		err = atomic_read(&tio_work->error);
-		if(unlikely(err)){
+		if(unlikely(err)) {
 			cache_err("Something unpected happened, disk may be abnormal.\n");
 			goto error;
 		}
 		
 sync_again:
 		/* submit page index of written pages to peer */
-		if(dcache->owner && wrote_index && peer_is_good) {
+/*		if(dcache->owner && wrote_index && peer_is_good) {
 			int m;
 			for(m = wrote_index; m < PVEC_NORMAL_SIZE; m++)
 				wb_index[m]= -1;
 			
 			cache_send_wrote(dcache->conn, wb_index, m, &req);
 			cache_dbg("wait for wrote ack.\n");
-			if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
+			if(wait_for_completion_timeout(&req->done, HZ*60) == 0 && peer_is_good) {
 				cache_warn("timeout when wait for wrote ack.\n");
 				cache_request_dequeue(req);
 				goto sync_again;
 			}else{
 				kmem_cache_free(cache_request_cache, req);
-			}
-			cache_dbg("ok, get wrote ack, go on!\n");			
+				cache_dbg("ok, get wrote ack, go on!\n");
+			}			
 		}
-
+*/
 		inactive_writeback_add_list(&list_inactive);
 		active_writeback_add_list(&list_active);
 	}	

@@ -1,0 +1,19 @@
+#
+#  dcache configuration
+#
+
+config DCACHE
+	tristate "Independent Continuous Disk Cache"
+	depends on PROC_FS && INET
+	default n
+	help
+	  
+	  	Dcache is a independent continuous disk cache.
+		
+		If you want to use it, you need to reserve some memory for cache(modify init/main.c), 
+	  	then recompile and install the kernel;  the address of reserved memory usually is fixed, 
+		it means the buffer is stored in the ranges of fixed physical address.
+	  	
+	 	It improve the speed of disk r/w without data loss, if NVDIMM is used.
+		
+		If unsure, say N.
