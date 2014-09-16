@@ -771,7 +771,6 @@ static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_
 	int done = 0;
 	struct tio_work *tio_work;
 	struct dcache_page **pages;
-	pgoff_t wb_index[PVEC_MAX_SIZE];
 	pgoff_t writeback_index = 0;
 	pgoff_t index, done_index;
 	pgoff_t end;
@@ -779,8 +778,6 @@ static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_
 	int tag;
 	int cycled;
 	bool is_seq;
-
-	BUG_ON(!dcache->owner);
 
 	if(!dcache)
 		return 0;
@@ -822,9 +819,7 @@ retry:
 	done_index = index;
 	while (!done && (index <= end)) {
 		int i;
-		int wrote_index = 0;
 		struct blk_plug plug;
-		struct cache_request* req = NULL;
 		LIST_HEAD(list_inactive);
 		LIST_HEAD(list_active);
 		
@@ -897,8 +892,6 @@ continue_unlock:
 				list_add(&dcache_page->list, &list_active);
 			dcache_page->site = temp;
 			
-			wb_index[wrote_index++]= dcache_page->index;
-			
 			atomic_dec(&dcache->dirty_pages);
 			
 			wbc->nr_to_write--;
@@ -943,25 +936,6 @@ continue_unlock:
 			goto error;
 		}
 		
-sync_again:
-		/* submit page index of written pages to peer */
-/*		if(dcache->owner && wrote_index && peer_is_good) {
-			int m;
-			for(m = wrote_index; m < PVEC_NORMAL_SIZE; m++)
-				wb_index[m]= -1;
-			
-			cache_send_wrote(dcache->conn, wb_index, m, &req);
-			cache_dbg("wait for wrote ack.\n");
-			if(wait_for_completion_timeout(&req->done, HZ*60) == 0 && peer_is_good) {
-				cache_warn("timeout when wait for wrote ack.\n");
-				cache_request_dequeue(req);
-				goto sync_again;
-			}else{
-				kmem_cache_free(cache_request_cache, req);
-				cache_dbg("ok, get wrote ack, go on!\n");
-			}			
-		}
-*/
 		inactive_writeback_add_list(&list_inactive);
 		active_writeback_add_list(&list_active);
 	}	

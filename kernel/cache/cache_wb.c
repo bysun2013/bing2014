@@ -266,11 +266,8 @@ static int cache_forker_thread(void * args)
 			have_dirty_io = over_bground_thresh(dcache);
 
 			if (!dcache->task && have_dirty_io) {
-				/* if this machine don't own the volume, ignore it */
-				if(dcache->owner){
-					action = FORK_THREAD;
-					break;
-				}
+				action = FORK_THREAD;
+				break;
 			}
 
 			if (dcache->task && !have_dirty_io &&
@@ -335,8 +332,7 @@ static int writeback_all(void)
 	mutex_lock(&dcache_list_lock);
 	list_for_each_entry(dcache, &dcache_list, list) {
 		mutex_unlock(&dcache_list_lock);
-		if(dcache->owner)
-			writeback_single(dcache,  DCACHE_WB_SYNC_ALL, LONG_MAX, false);
+		writeback_single(dcache,  DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 		mutex_lock(&dcache_list_lock);
 	}
 	mutex_unlock(&dcache_list_lock);

@@ -39,22 +39,11 @@
 #include "cache_wb.h"
 #include "cache_lru.h"
 #include "cache_proc.h"
-#include "cache_config.h"
-
 
 #define CACHE_VERSION "0.99"
 
-/* by default, peer is good */
-bool peer_is_good = true;
-
-static int ctr_major_cache;
-static char dcache_ctr_name[] = "dcache_ctl";
-extern struct file_operations dcache_ctr_fops;
-
 unsigned long dcache_total_pages;
 unsigned int dcache_total_volume;
-
-struct kmem_cache *cache_request_cache;
 
 /* list all of caches, which represent volumes. */
 struct list_head dcache_list;
@@ -125,22 +114,16 @@ static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache)
 	int retry = RETRY_GRT_PAGE;
 	
 	while(retry--) {
+		unsigned int nr_wrote;
 		dcache_page = dcache_get_free_page(dcache);
 		if(dcache_page)
 			break;
 		
-		if(dcache->owner) {
-			unsigned int nr_wrote;
-			nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 256, true);
-			if(!nr_wrote) {
-				set_current_state(TASK_INTERRUPTIBLE);
-				schedule_timeout(HZ >> 3);
-				__set_current_state(TASK_RUNNING);				
-			}
-		} else {
+		nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 256, true);
+		if(!nr_wrote) {
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ >> 3);
-			__set_current_state(TASK_RUNNING);
+			__set_current_state(TASK_RUNNING);				
 		}
 	}
 	
@@ -156,22 +139,16 @@ static struct dcache_page* dcache_write_get_free_page(struct dcache * dcache)
 	struct dcache_page *dcache_page = NULL;
 	
 	while(1) {
+		unsigned int nr_wrote;
 		dcache_page = dcache_get_free_page(dcache);
 		if(dcache_page)
 			break;
 		
-		if(dcache->owner) {
-			unsigned int nr_wrote;
-			nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 4096, true);
-			if(!nr_wrote) {
-				set_current_state(TASK_INTERRUPTIBLE);
-				schedule_timeout(HZ >> 3);
-				__set_current_state(TASK_RUNNING);				
-			}
-		}else{
+		nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 4096, true);
+		if(!nr_wrote) {
 			set_current_state(TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ >> 3);
-			__set_current_state(TASK_RUNNING);
+			__set_current_state(TASK_RUNNING);				
 		}
 	}
 	
@@ -342,8 +319,8 @@ again:
 	dcache_page= dcache_find_get_page(dcache, page_index);
 
 	if(dcache_page == NULL){	/* Write Miss */
-		if(dcache->owner)
-			decrease_dirty_ratio(dcache);
+		decrease_dirty_ratio(dcache);
+		
 		dcache_page=dcache_write_get_free_page(dcache);
 		dcache_page->dcache=dcache;
 		dcache_page->index=page_index;
@@ -379,7 +356,7 @@ again:
 		lru_write_miss_handle(dcache_page);
 		unlock_page(dcache_page->page);
 		
-		if(dcache->owner && over_bground_thresh(dcache))
+		if(over_bground_thresh(dcache))
 			wakeup_cache_flusher(dcache);
 	}else{		/* Write Hit */
 
@@ -401,7 +378,7 @@ again:
 			dcache_set_page_tag(dcache_page, DCACHE_TAG_DIRTY);
 			atomic_inc(&dcache->dirty_pages);
 			dcache_page->dirtied_when = jiffies;
-			if(dcache->owner && over_bground_thresh(dcache))
+			if(over_bground_thresh(dcache))
 				wakeup_cache_flusher(dcache);
 		}
 		dcache_page->dirty_bitmap |= bitmap;
@@ -573,22 +550,15 @@ again:
 int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos, enum request_from from)
 {
 	struct dcache *dcache = (struct dcache *)dcachep;
-	struct cache_request * req;
 	u32 tio_index = 0;
 	u32 sector_num;
 	int err = 0;
 	unsigned char bitmap;
-	u32 real_size = size;
-	loff_t real_ppos = ppos;
 	sector_t lba, alba, lba_off;
 	pgoff_t page_index;
 
 	cache_ignore("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
-/*	
-	if(from == REQUEST_FROM_OUT && peer_is_good) {
-		cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);		
-	}
-*/	
+	
 	while (size && tio_index < pg_cnt) {
 			unsigned int current_bytes, bytes = PAGE_SIZE;
 			unsigned int  skip_blk=0;
@@ -620,17 +590,7 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			
 			tio_index++;
 	}
-/*	
-	if(from == REQUEST_FROM_OUT && peer_is_good) {
-		cache_dbg("wait for data ack.\n");
-		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
-			cache_warn("timeout when wait for data ack.\n");
-			cache_request_dequeue(req);
-		}else
-			kmem_cache_free(cache_request_cache, req);
-		cache_dbg("ok, get data ack, go on!\n"); 		
-	}	
-*/	
+	
 	return err;
 }
 
@@ -666,7 +626,6 @@ int dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_
 void* init_volume_dcache(const char *path, int owner, int port)
 {
 	struct dcache *dcache;
-	int vol_owner;
 	
 	dcache=kzalloc(sizeof(*dcache),GFP_KERNEL);
 	if(!dcache)
@@ -696,28 +655,6 @@ void* init_volume_dcache(const char *path, int owner, int port)
 	list_add_tail(&dcache->list, &dcache_list);
 	mutex_unlock(&dcache_list_lock);
 
-	if(((machine_type == MA) && (owner == MA)) ||  \
-		((machine_type == MB) && (owner == MB)))
-	{
-		vol_owner = true;
-	}
-	if(((machine_type == MA) && (owner == MB)) ||   \
-	       ((machine_type == MB) && (owner == MA)))
-	{
-		vol_owner = false;
-	}
-	
-	cache_info("for %s: echo_host = %s  echo_peer = %s  echo_port = %d  owner = %s \n", \
-				dcache->path, echo_host, echo_peer, port, (vol_owner ? "true" : "false"));
-
-	memcpy(dcache->inet_addr, echo_host, strlen(echo_host));
-	memcpy(dcache->inet_peer_addr, echo_peer, strlen(echo_peer));
-	dcache->port = port;
-	dcache->owner = vol_owner;
-	dcache->origin_owner = vol_owner;
-
-	//dcache->conn = cache_conn_init(dcache);
-
 	dcache_total_volume++;
 	
 	return (void *)dcache;
@@ -744,10 +681,7 @@ void del_volume_dcache(void *volume_dcachep)
 		wait_for_completion(&dcache->wb_completion);
 	}
 
-	if(dcache->owner)
-		writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
-
-	//cache_conn_exit(dcache);
+	writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 	
 	dcache_delete_radix_tree(dcache);
 	
@@ -764,27 +698,14 @@ EXPORT_SYMBOL_GPL(dcache_read);
 EXPORT_SYMBOL_GPL(del_volume_dcache);
 EXPORT_SYMBOL_GPL(init_volume_dcache);
 
-static int dcache_request_init(void)
-{
-	cache_request_cache = KMEM_CACHE(cache_request, 0);
-	return  cache_request_cache ? 0 : -ENOMEM;
-}
-
 static void dcache_global_exit(void)
 {
 
-	unregister_chrdev(ctr_major_cache, dcache_ctr_name);
-	
 	cache_procfs_exit();
 
 	lru_shrink_thread_exit();
 
 	wb_thread_exit();
-
-	if(cache_request_cache)
-		kmem_cache_destroy(cache_request_cache);
-
-	cio_exit();
 	
 	cache_info("Unload iSCSI Cache Module. All right \n");
 }
@@ -809,19 +730,7 @@ static int dcache_global_init(void)
 		(unsigned long)iet_mem_virt, (unsigned long)reserve_phys_addr, (iet_mem_size>>20));
 	
 	cache_dbg("The size of struct dcache_page is %d.\n", dcache_page_size);
-
-	if ((ctr_major_cache= register_chrdev(0, dcache_ctr_name, &dcache_ctr_fops)) < 0) {
-		cache_alert("failed to register the control device %d\n", ctr_major_cache);
-		err = ctr_major_cache;
-		goto error;
-	}
 	
-	if((err = dcache_request_init())< 0)
-		goto error;
-	
-	if((err = cio_init())< 0)
-		goto error;
-
 	if((err = lru_list_init()) < 0)
 		goto error;
 	

@@ -31,8 +31,6 @@
 #include <linux/timer.h>
 
 #include "cache_def.h"
-#include "cache_conn/cache_conn.h"
-#include "iet_cache_u.h"
 
 /* parameter of reserved memory at boot */
 extern unsigned int iet_mem_size;

@@ -20,8 +20,6 @@
 #ifndef CACHE_RW_H
 #define CACHE_RW_H
 
-#include "cache_conn/cache_conn.h"
-
 #define DCACHE_TAG_DIRTY	0
 #define DCACHE_TAG_WRITEBACK	1
 #define DCACHE_TAG_TOWRITE	2

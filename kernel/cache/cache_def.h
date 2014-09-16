@@ -46,7 +46,6 @@ extern struct mutex dcache_list_lock;
 
 extern unsigned long dcache_total_pages;
 extern unsigned int dcache_total_volume;
-extern struct kmem_cache *cache_request_cache;
 
 /* dynamic writeback, to improve performance */
 #define PVEC_NORMAL_SIZE		16
@@ -87,18 +86,8 @@ struct dcache_page{
 struct dcache{
 	u32 id;
 	char path[PATH_LEN];
-
-	/* Inter-connection of Cache */
-	bool owner;
-	bool origin_owner;
-
-	char inet_addr[ADDR_LEN];
-	char inet_peer_addr[ADDR_LEN];
-	int port;
 	
 	struct block_device *bdev;
-	
-	struct cache_connection * conn;
 	
 	struct list_head list;		/* list all of volume in cache */
 	
@@ -116,17 +105,6 @@ struct dcache{
 	struct completion wb_completion; /* wait for writeback thread exit */
 	struct timer_list wakeup_timer; /* used for delayed thread wakeup */
 
-};
-
-/* cache IO, to receive data synced */
-struct cio {
-       loff_t offset; /* byte offset on target */
-       u32 size; /* total io bytes */
-
-       u32 pg_cnt; /* total page count */
-       struct page **pvec; /* array of pages holding data */
-
-       atomic_t count; /* ref count */
 };
 
 #endif
