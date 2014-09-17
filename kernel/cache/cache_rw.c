@@ -137,7 +137,7 @@ out:
 	return err;
 }
 
-static int dcache_rw_page(struct dcache_page *dcache_page, int rw)
+int dcache_rw_page(struct dcache_page *dcache_page, int rw)
 {
 	struct block_device *bdev = dcache_page->dcache->bdev;
 	struct tio_work *tio_work;

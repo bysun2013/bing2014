@@ -57,5 +57,7 @@ void dcache_delete_radix_tree(struct dcache *dcache);
 void dcache_set_page_tag(struct dcache_page *dcache_page, unsigned int tag);
 long writeback_single(struct dcache *dcache, unsigned int mode, long pages_to_write, bool cyclic);
 
+int dcache_rw_page(struct dcache_page *dcache_page, int rw);
+
 #endif
 
