@@ -39,8 +39,6 @@ extern char *iet_mem_virt;
 //extern unsigned long iscsi_mem_goal; 
 
 int dcache_clean_page(struct dcache * dcache, pgoff_t index);
-int _dcache_write(void *dcachep, struct page **pages, 
-	u32 pg_cnt, u32 size, loff_t ppos, enum request_from from);
 
 #endif
 

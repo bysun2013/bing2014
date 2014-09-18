@@ -526,315 +526,44 @@ void dcache_end_page_writeback(struct dcache_page *dcache_page)
 	wake_up_page(dcache_page->page, PG_writeback);
 }
 
-/*
- * I/O completion handler for multipage BIOs.
- */
-static void dcache_mpage_endio(struct bio *bio, int err)
-{
-	const int uptodate = test_bit(BIO_UPTODATE, &bio->bi_flags);
-	struct bio_vec *bvec = bio->bi_io_vec + bio->bi_vcnt - 1;
-	struct tio_work *tio_work = bio->bi_private;
-	
-	err = uptodate ? err : -EIO;
-	if (err)
-		atomic_set(&tio_work->error, err);
-	
-	do {
-		struct page *page = bvec->bv_page;
-		struct dcache_page *dcache_page = (struct dcache_page *)page->mapping;
-
-		if (--bvec >= bio->bi_io_vec)
-			prefetchw(&bvec->bv_page->flags);
-		
-		if (bio_data_dir(bio) == READ) {
-			dcache_page->valid_bitmap = 0xff;
-			cache_ignore("READ one page. Index is %llu\n",
-				(unsigned long long)dcache_page->index);		
-		} else { /* WRITE */
-			cache_ignore("Mpage: WRITEBACK one page. Index is %llu\n", 
-				(unsigned long long)dcache_page->index);
-		}
-	} while (bvec >= bio->bi_io_vec);
-	
-	cache_ignore("%s: This bio includes %d pages.\n", bio_data_dir(bio) == READ? "READ":"WRITE", bio->bi_vcnt);
-	
-	/* If last bio signal completion */
-	if (atomic_dec_and_test(&tio_work->bios_remaining))
-		complete(&tio_work->tio_complete);
-	
-	bio_put(bio);
-}
-
-static struct bio * dcache_mpage_alloc(struct block_device *bdev,
-	sector_t first_sector, unsigned int nr_vecs, gfp_t gfp_flags)
-{
-	struct bio *bio;
-
-	bio = bio_alloc(gfp_flags, nr_vecs);
-
-	if (bio == NULL && (current->flags & PF_MEMALLOC)) {
-		while (!bio && (nr_vecs /= 2))
-			bio = bio_alloc(gfp_flags, nr_vecs);
-	}
-
-	if (bio) {
-		bio->bi_bdev = bdev;
-		bio->bi_sector = first_sector;
-	}else
-		cache_dbg("the bio include %d vecs.\n", nr_vecs);
-
-	return bio;
-}
-
 struct cache_mpage_data {
 	struct bio *bio;
 	pgoff_t last_page_in_bio;
 };
 
-struct bio *dcache_mpage_bio_submit(struct bio *bio, int rw)
-{
-	bio->bi_end_io = dcache_mpage_endio;
-	submit_bio(rw, bio);
-	
-	return NULL;
-}
-
-static int dcache_do_readpage(struct dcache_page *dcache_page, int nr_pages,
-	struct cache_mpage_data *mpd, struct tio_work *tio_work)
-{	
-	int err = 0;
-	int length = PAGE_SIZE;
-	struct bio* bio = mpd->bio;
-	struct dcache *dcache = dcache_page->dcache;
-	struct block_device * bdev = dcache->bdev;
-
-	if (bio && (mpd->last_page_in_bio + 1 != dcache_page->index))
-		bio = dcache_mpage_bio_submit(bio, READ);
-
-alloc_new:
-	if (bio == NULL) {
-		bio = dcache_mpage_alloc(bdev, dcache_page->index <<SECTORS_ONE_PAGE_SHIFT,
-			  	min_t(int, nr_pages, bio_get_nr_vecs(bdev)),
-				GFP_KERNEL);
-		if (bio == NULL)
-			goto confused;
-		
-		bio->bi_private = tio_work;
-		atomic_inc(&tio_work->bios_remaining);
-	}
-
-	if (bio_add_page(bio, dcache_page->page, length, 0) < length) {
-		cache_ignore("READ: bio maybe it's full: %d pages.\n", bio->bi_vcnt);
-		bio = dcache_mpage_bio_submit(bio, READ);
-		goto alloc_new;
-	}
-	
-	mpd->last_page_in_bio = dcache_page->index;
-	mpd->bio = bio;
-	return err;
-	
-confused:
-	if (bio)
-		bio = dcache_mpage_bio_submit(bio, READ);
-
-	err = dcache_rw_page(dcache_page, READ);
-	
-	mpd->bio = bio;
-	return err;
-}
-
-/*
-* multi-pages read/write, its pages maybe not sequential
-* called by iscsi_read_cache
-*/
-static int _dcache_read_mpage(struct dcache *dcache, struct dcache_page **dcache_pages, 
-	int pg_cnt, struct cache_mpage_data *mpd)
-{
-	int err = 0;
-	struct tio_work *tio_work;
-	int i, remain;
-	struct blk_plug plug;
-
-	if(!dcache || !pg_cnt)
-		return 0;
-	
-	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
-	if (!tio_work)
-		return -ENOMEM;
-
-	atomic_set(&tio_work->error, 0);
-	atomic_set(&tio_work->bios_remaining, 0);
-	init_completion(&tio_work->tio_complete);
-
-	blk_start_plug(&plug);
-	for (i = 0, remain = pg_cnt; i < pg_cnt; i++, remain--) {
-		struct dcache_page *dcache_page = dcache_pages[i];
-		
-		err = dcache_do_readpage(dcache_page, remain, mpd, tio_work);
-		if (unlikely(err)) {
-			cache_alert("It should never show up!Maybe disk crash... \n");
-			BUG();
-		}
-	}
-	
-	if (mpd->bio)
-		mpd->bio = dcache_mpage_bio_submit(mpd->bio, READ);
-
-	blk_finish_plug(&plug);
-
-	if(atomic_read(&tio_work->bios_remaining))
-		wait_for_completion(&tio_work->tio_complete);
-	
-	err = atomic_read(&tio_work->error);
-	if(err)
-		cache_err("error when submit request to disk.\n");
-	
-	kfree(tio_work);
-	return err;
-}
-
-int dcache_read_mpage(struct dcache *dcache, struct dcache_page **dcache_pages, int pg_cnt)
-{
-	int ret;
-	
-	struct cache_mpage_data mpd = {
-		.bio = NULL,
-		.last_page_in_bio = 0,
-	};
-	
-	ret = _dcache_read_mpage(dcache, dcache_pages, pg_cnt, &mpd);
-	
-	BUG_ON(mpd.bio != NULL);
-
-	if(unlikely(ret))
-		cache_err("An error has occurred when read mpage.\n");
-
-	return ret;
-}
-
-static int dcache_do_writepage(struct dcache_page *dcache_page, 
-	struct cache_writeback_control *wbc, struct cache_mpage_data *mpd, struct tio_work *tio_work)
-{	
-	int err = 0;
-	int length = PAGE_SIZE;
-	long  nr_pages = wbc->nr_to_write;
-	struct bio* bio = mpd->bio;
-	struct dcache *dcache = dcache_page->dcache;
-	struct block_device * bdev = dcache->bdev;
-
-	if (bio && (mpd->last_page_in_bio != dcache_page->index -1))
-		bio = dcache_mpage_bio_submit(bio, WRITE);
-
-alloc_new:
-	if (bio == NULL) {
-		bio = dcache_mpage_alloc(bdev, dcache_page->index << SECTORS_ONE_PAGE_SHIFT,
-			  	min_t(long, nr_pages, bio_get_nr_vecs(bdev)),
-				GFP_KERNEL);
-		if (bio == NULL){
-			cache_warn("Memory has been used up...\n");
-			goto confused;
-		}
-		bio->bi_private = tio_work;
-		atomic_inc(&tio_work->bios_remaining);
-	}
-
-	if (bio_add_page(bio, dcache_page->page, length, 0) < length) {
-		cache_ignore("WRITE: bio maybe it's full: %d pages.\n", bio->bi_vcnt);
-		bio = dcache_mpage_bio_submit(bio, WRITE);
-		goto alloc_new;
-	}
-	
-	mpd->last_page_in_bio = dcache_page->index;
-	mpd->bio = bio;
-	return err;
-	
-confused:
-	if (bio)
-		bio = dcache_mpage_bio_submit(bio, WRITE);
-	
-	mpd->bio = bio;
-	
-	/* although I believe the minimal block should be 4KB, but I must check it */ 
-	err = dcache_write_page_blocks(dcache_page);
-	
-	return err;
-}
-
-/*
-* multi-pages are merged to one submit, to imrove efficiency
-* return nr of wrote pages 
-*/
-static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_control *wbc,
+static int dcache_writeback_page(struct dcache *dcache, struct cache_writeback_control *wbc,
 			struct cache_mpage_data *mpd)
 {
 	int err = 0;
 	int done = 0;
-	struct tio_work *tio_work;
-	struct dcache_page **pages;
-	pgoff_t writeback_index = 0;
-	pgoff_t index, done_index;
-	pgoff_t end;
-	unsigned int nr_pages, wr_pages;
 	int tag;
-	int cycled;
-	bool is_seq;
-
+	pgoff_t index = 0;
+	pgoff_t end = wbc->range_end;
+	unsigned int nr_pages;
+	
+	struct dcache_page *pages[PVEC_NORMAL_SIZE];
+	
 	if(!dcache)
 		return 0;
-	
-	pages = kzalloc(PVEC_MAX_SIZE * sizeof (struct dcache_page *), GFP_KERNEL);
-	if (!pages){
-		cache_err("Out of memory!\n");
-		return -ENOMEM;
-	}
-	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
-	if (!tio_work){
-		cache_err("Out of memory!\n");
-		kfree(pages);
-		return -ENOMEM;
-	}
-	
-	if (wbc->range_cyclic) {
-		writeback_index = dcache->writeback_index;
-		index = writeback_index;
-		if (index == 0)
-			cycled = 1;
-		else
-			cycled = 0;
-		end = -1;
-	} else {
-		index = wbc->range_start;
-		end = wbc->range_end;
-		cycled = 1;
-	}
 	
 	if (wbc->mode == DCACHE_WB_SYNC_ALL)
 		tag = DCACHE_TAG_TOWRITE;
 	else
 		tag = DCACHE_TAG_DIRTY;
-retry:
+	
 	if (wbc->mode == DCACHE_WB_SYNC_ALL)
 		dcache_tag_pages_for_writeback(dcache, index, end);
 	
-	done_index = index;
 	while (!done && (index <= end)) {
 		int i;
-		struct blk_plug plug;
 		LIST_HEAD(list_inactive);
 		LIST_HEAD(list_active);
-		
-		atomic_set(&tio_work->error, 0);
-		atomic_set(&tio_work->bios_remaining, 0);
-		init_completion(&tio_work->tio_complete);
 
 		nr_pages = dcache_find_get_pages_tag(dcache, &index, tag,
-			      min(end - index, (pgoff_t)PVEC_MAX_SIZE-1) + 1, pages);
+			      min(end - index, (pgoff_t)PVEC_NORMAL_SIZE-1) + 1, pages);
 		if (nr_pages == 0)
 			break;
 		
-		wr_pages = 0;
-		
-		blk_start_plug(&plug);
 		for (i = 0; i < nr_pages; i++) {
 			struct dcache_page *dcache_page = pages[i];
 
@@ -842,8 +571,8 @@ retry:
 				done = 1;
 				break;
 			}
-			done_index = dcache_page->index;
-			if(!trylock_page(dcache_page->page)){
+
+			if(!trylock_page(dcache_page->page)) {
 				if (wbc->mode != DCACHE_WB_SYNC_NONE)
 					lock_page(dcache_page->page);
 				else
@@ -871,12 +600,8 @@ continue_unlock:
 			dcache_test_set_page_writeback(dcache_page);
 			unlock_page(dcache_page->page);
 
-			if(!mpd->bio)
-				is_seq = 0;
-			else
-				is_seq = (mpd->last_page_in_bio == dcache_page->index -1 ? 1 : 0);
 			
-			err = dcache_do_writepage(dcache_page, wbc, mpd, tio_work);
+			err = dcache_write_page_blocks(dcache_page);
 			
 			if (unlikely(err)) {
 				cache_err("It should never show up!Maybe disk crash... \n");
@@ -899,69 +624,14 @@ continue_unlock:
 				done=1;
 				break;
 			}
-			
-			++wr_pages;
-			if(!is_seq && (wr_pages > PVEC_NORMAL_SIZE)){		
-				/* writeback all bio, not include current bio */
-				if(likely(mpd->bio))
-					atomic_dec(&tio_work->bios_remaining);
-				
-				blk_finish_plug(&plug);
-				
-				if(atomic_read(&tio_work->bios_remaining))
-					wait_for_completion(&tio_work->tio_complete);
-
-				wr_pages = 0;
-				atomic_set(&tio_work->error, 0);
-				atomic_set(&tio_work->bios_remaining, 0);
-				init_completion(&tio_work->tio_complete);
-				blk_start_plug(&plug);
-				if(likely(mpd->bio)){
-					atomic_inc(&tio_work->bios_remaining);
-					wr_pages++;
-				}
-			}
-		}
-		if (mpd->bio)
-			mpd->bio = dcache_mpage_bio_submit(mpd->bio, WRITE);
-
-		blk_finish_plug(&plug);
-
-		if(atomic_read(&tio_work->bios_remaining))
-			wait_for_completion(&tio_work->tio_complete);
-		
-		err = atomic_read(&tio_work->error);
-		if(unlikely(err)) {
-			cache_err("Something unpected happened, disk may be abnormal.\n");
-			goto error;
 		}
 		
 		inactive_writeback_add_list(&list_inactive);
 		active_writeback_add_list(&list_active);
 	}	
 	
-	if (!cycled && !done) {
-		/*
-		 * range_cyclic:
-		 * We hit the last page and there is more work to be done: wrap
-		 * back to the start of the file
-		 */
-		cycled = 1;
-		index = 0;
-		end = writeback_index - 1;
-		goto retry;
-	}
-	if (wbc->range_cyclic)
-		dcache->writeback_index = done_index;
-	
-error:
-	if(tio_work)
-		kfree(tio_work);
-	if(pages)
-		kfree(pages);
 	return err;
 }
-
 
 /*
 * writeback the dirty pages of one volume, return nr of wrote pages.
@@ -987,7 +657,7 @@ long writeback_single(struct dcache *dcache, unsigned int mode,
 		.last_page_in_bio = 0,
 	};
 	
-	ret = dcache_writeback_mpage(dcache, &wbc, &mpd);
+	ret = dcache_writeback_page(dcache, &wbc, &mpd);
 	
 	BUG_ON(mpd.bio != NULL);
 

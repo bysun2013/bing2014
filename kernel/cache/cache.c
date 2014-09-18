@@ -512,11 +512,10 @@ again:
 	return err;
 }
 
-/*
-* sync data with peer first, it can improve efficiency, 
-* but may result in slave's starvation for clean pages.
+/**
+* The global interface for write disk cache
 */
-int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos, enum request_from from)
+int dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
 {
 	struct dcache *dcache = (struct dcache *)dcachep;
 	u32 tio_index = 0;
@@ -560,19 +559,6 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			tio_index++;
 	}
 	
-	return err;
-}
-
-/**
-* The global interface for write disk cache
-*/
-int dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
-{
-	int err;
-	
-	BUG_ON(ppos % SECTOR_SIZE != 0);
-	err = _dcache_write(dcachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
-
 	return err;
 }
 

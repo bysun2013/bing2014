@@ -47,14 +47,8 @@ extern struct mutex dcache_list_lock;
 extern unsigned long dcache_total_pages;
 extern unsigned int dcache_total_volume;
 
-/* dynamic writeback, to improve performance */
+/* vector size to writeback */
 #define PVEC_NORMAL_SIZE		16
-#define PVEC_MAX_SIZE           512
-
-enum request_from {
-	REQUEST_FROM_PEER = 0,
-	REQUEST_FROM_OUT,
-};
 
 enum page_site {
 	inactive = 0, /* active list*/
