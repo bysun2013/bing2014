@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 Gongchen Li <ligongchen@163.com>
+ * Copyright (C) 2014-2015 Bing Sun <b.y.sun.cn@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -15,15 +15,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
  */
- 
-#ifndef DCACHE_CONFIG_H
-#define DCACHE_CONFIG_H
 
-extern int machine_type;
-extern char echo_host[];
-extern char echo_peer[];
 
-void hb_restore_owner(void);
-void hb_change_state(void);
+#ifndef CACHE_RECEIVER_H
+#define CACHE_RECEIVER_H
+
+int cache_recv_short(struct socket *sock, void *buf, size_t size, int flags);
 
 #endif

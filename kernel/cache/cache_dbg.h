@@ -65,17 +65,17 @@
 
 #define cache_ignore(fmt, args...)		do{	}while(0)
 #define cache_dbg(fmt, args...) \
-	dprintk(KERN_ALERT, fmt, ##args)
+	dprintk_detail(KERN_DEBUG, fmt, ##args)
 #define cache_info(fmt, args...) \
 	eprintk(KERN_INFO, fmt, ##args)
 #define cache_warn(fmt, args...) \
-	eprintk(KERN_WARNING, fmt,##args)
+	eprintk_detail(KERN_WARNING, fmt,##args)
 #define cache_err(fmt, args...) \
 	eprintk_detail(KERN_ERR, fmt, ##args)
 #define cache_alert(fmt, args...) \
-	eprintk(KERN_ALERT, fmt, ##args)
+	eprintk_detail(KERN_ALERT, fmt, ##args)
 #define cache_emerg(fmt, args...) \
-	eprintk(KERN_EMERG, fmt, ##args)
+	eprintk_detail(KERN_EMERG, fmt, ##args)
 
 
 #endif

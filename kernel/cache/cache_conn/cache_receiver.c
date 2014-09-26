@@ -24,6 +24,7 @@
 #include "../cache_def.h"
 #include "../cache.h"
 #include "cache_conn.h"
+#include "../cache_config.h"
 
 static int decode_header(struct cache_connection *conn, void *header, struct packet_info *pi)
 {
@@ -44,7 +45,7 @@ static int decode_header(struct cache_connection *conn, void *header, struct pac
 	return 0;
 }
 
-static int cache_recv_short(struct socket *sock, void *buf, size_t size, int flags)
+int cache_recv_short(struct socket *sock, void *buf, size_t size, int flags)
 {
 	mm_segment_t oldfs;
 	struct kvec iov = {
@@ -79,6 +80,7 @@ static int cache_recv(struct cache_socket *cache_socket, void *buf, size_t size)
 			cache_err( "sock_recvmsg returned %d\n", rv);
 	} else if (rv == 0) {
 		cache_info("sock was shut down by peer\n");
+		hb_change_state();
 	}
 	
 	return rv;
@@ -346,7 +348,7 @@ void cache_socket_receive(struct cache_connection *connection)
 				 cmdname(pi.cmd), pi.size);
 			goto err_out;
 		}
-cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
+		cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 		if (shs) {
 			err = cache_recv_all_warn(&connection->data, pi.data, shs);
 			if (err)

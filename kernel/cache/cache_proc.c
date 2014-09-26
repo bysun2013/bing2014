@@ -55,8 +55,8 @@ static void *cache_seq_start(struct seq_file *m, loff_t *pos)
 	active = atomic_read(&active_list_length);
 	pages_dirty = dcache_total_pages - inactive - active;
 	seq_printf(m, "iSCSI Cache Status:\n");
-	seq_printf(m, "\tpage_dirty:%ld, inactive:%d, active:%d.\n", 
-		pages_dirty, inactive, active);
+	seq_printf(m, "\tpage_dirty:%ld, inactive:%d, active:%d,  peer: %d\n", 
+		pages_dirty, inactive, active, peer_is_good);
 
 	seq_printf(m, "\tTraverse List, inactive: %ld, active: %ld\n", inactive_length(), active_length());
 	seq_printf(m, "iSCSI Cache include %d volumes:\n", dcache_total_volume);
@@ -96,8 +96,9 @@ static void cache_volume_info_show(struct seq_file *seq, void *p)
 {
 	struct dcache * volume = list_entry(p, struct dcache, list);
 	
-	seq_printf(seq, "\tCache Path:%s total:%u dirty:%u\n",
-		&volume->path[0], atomic_read(&volume->total_pages), atomic_read(&volume->dirty_pages));
+	seq_printf(seq, "\tCache Path:%s total:%u dirty:%u Owner = %s\n",
+		&volume->path[0], atomic_read(&volume->total_pages), atomic_read(&volume->dirty_pages),
+		volume->owner? "true":"false");
 }
 
 static int cache_status_seq_open(struct inode *inode, struct file *file)

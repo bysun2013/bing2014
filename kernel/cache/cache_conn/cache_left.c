@@ -39,30 +39,6 @@ static void cache_incoming_connection(struct sock *sk)
 	state_change(sk);
 }
 
-
-/**
- * cache_socket_okay() - Free the socket if its connection is not okay
- * @sock:	pointer to the pointer to the socket.
- */
-static int cache_socket_okay(struct socket **sock)
-{
-	int rr;
-	char tb[4];
-
-	if (!*sock)
-		return false;
-
-	rr = cache_recv_short(*sock, tb, 4, MSG_DONTWAIT | MSG_PEEK);
-
-	if (rr > 0 || rr == -EAGAIN) {
-		return true;
-	} else {
-		sock_release(*sock);
-		*sock = NULL;
-		return false;
-	}
-}
-
 static void unregister_state_change(struct sock *sk, struct accept_wait_data *ad)
 {
 	write_lock_bh(&sk->sk_callback_lock);

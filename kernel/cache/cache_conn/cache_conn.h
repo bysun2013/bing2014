@@ -222,7 +222,7 @@ struct cache_connection{
 	
 	struct cache_thread receiver; /* used for receive data*/
 	struct cache_thread worker;
-	struct cache_thread asender; /* used for receive ack and wrote index */
+	struct cache_thread asender; /* used for data ack and wrote index */
 
 	atomic_t packet_seq;
 	/* sender side */

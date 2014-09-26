@@ -157,10 +157,12 @@ static int lun_update(unsigned long ptr)
 }
 
 /* called when peer recovery */
-static void hb_restore_owner(void)
+void hb_restore_owner(void)
 {
 	struct dcache *dcache;
 	
+	if(peer_is_good)
+		return;	
 	peer_is_good = true;
 	
 	mutex_lock(&dcache_list_lock);
@@ -171,10 +173,12 @@ static void hb_restore_owner(void)
 }
 
 /* called when peer crash */
-static void hb_change_state(void)
+void hb_change_state(void)
 {
 	struct dcache *dcache;
-	
+
+	if(!peer_is_good)
+		return;
 	peer_is_good = false;
 	
 	mutex_lock(&dcache_list_lock);

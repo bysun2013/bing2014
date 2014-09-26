@@ -22,6 +22,8 @@
 
 
 #include "cache_conn.h"
+#include "cache_receiver.h"
+#include "../cache_config.h"
 
 static unsigned int inet_addr(const char* ip)
 {
@@ -241,6 +243,29 @@ void _cache_thread_stop(struct cache_thread *thi, int restart, int wait)
 	cache_info("Thread %s exit.\n", thi->name);
 }
 
+/**
+ * cache_socket_okay() - Free the socket if its connection is not okay
+ * @sock:	pointer to the pointer to the socket.
+ */
+static int cache_socket_okay(struct socket **sock)
+{
+	int rr;
+	char tb[4];
+
+	if (!*sock)
+		return false;
+
+	rr = cache_recv_short(*sock, tb, 4, MSG_DONTWAIT | MSG_PEEK);
+
+	if (rr > 0 || rr == -EAGAIN) {
+		return true;
+	} else {
+		sock_release(*sock);
+		*sock = NULL;
+		return false;
+	}
+}
+
 static struct socket *cache_wait_for_connect(struct cache_connection *connection, struct accept_wait_data *ad)
 {
 	int err = 0;
@@ -285,7 +310,7 @@ static struct socket *cache_try_connect(struct cache_connection *connection)
 	struct sockaddr_in6 peer_in6;
 
 	int err, peer_addr_len, my_addr_len;
-	int sndbuf_size, rcvbuf_size, connect_int = 5;
+	int sndbuf_size, rcvbuf_size, connect_int = 10;
 	int disconnect_on_error = 1;
 /*
 	rcu_read_lock();
@@ -318,8 +343,8 @@ static struct socket *cache_try_connect(struct cache_connection *connection)
 		goto out;
 	}
 
-//	sock->sk->sk_rcvtimeo =
-//	sock->sk->sk_sndtimeo = connect_int * HZ;
+	sock->sk->sk_rcvtimeo =
+	sock->sk->sk_sndtimeo = connect_int * HZ;
 //cache_setbufsize(sock, sndbuf_size, rcvbuf_size);
 
        /* explicitly bind to the configured IP as source IP
@@ -438,12 +463,8 @@ out:
 static int conn_connect(struct cache_connection *connection)
 {
 	struct cache_socket sock, msock;
-
-//	struct net_conf *nc;
-//	int timeout, h, ok;
-	int ping_timeo = 10;
-
-	int h=0, count=0;
+	int timeout = 60, h = 0, ok;
+	int ping_timeo = 5;
 
 	struct accept_wait_data ad = {
 		.connection = connection,
@@ -478,34 +499,26 @@ static int conn_connect(struct cache_connection *connection)
 				goto out_release_sockets;
 			}
 		}
+
 		if (sock.socket && msock.socket) {
-			break;
-		}
-/*
-		if (sock.socket && msock.socket) {
-			
-			rcu_read_lock();
-			nc = rcu_dereference(connection->net_conf);
-			timeout = nc->ping_timeo * HZ / 10;
-			rcu_read_unlock();
+			timeout = ping_timeo * HZ / 10;
 			schedule_timeout_interruptible(timeout);
 			ok = cache_socket_okay(&sock.socket);
 			ok = cache_socket_okay(&msock.socket) && ok;
 			if (ok)
 				break;
 		}
-*/
-retry:	
+
+retry:
 		s = cache_wait_for_connect(connection, &ad);
 
 		if (s) {
 			int fp = receive_first_packet(connection, s);
-			//cache_socket_okay(&sock.socket);
-			//cache_socket_okay(&msock.socket);
+			
 			switch (fp) {
 			case P_INITIAL_DATA:
 				if (sock.socket) {
-					cache_alert("initial packet S crossed\n");
+					cache_dbg("initial packet S crossed\n");
 					sock_release(sock.socket);
 					sock.socket = s;
 					goto randomize;
@@ -515,29 +528,23 @@ retry:
 				break;
 			case P_INITIAL_META:
 				if (msock.socket) {
-					cache_alert( "initial packet M crossed\n");
+					cache_dbg( "initial packet M crossed\n");
 					sock_release(msock.socket);
 					msock.socket = s;
 					goto randomize;
 				}
 				msock.socket = s;
-				cache_alert("receiving initial meta packet\n");
+				cache_dbg("receiving initial meta packet\n");
 				break;
 			default:
-				cache_alert("Error receiving initial packet\n");
+				cache_err("Error receiving initial packet\n");
 				sock_release(s);
 randomize:
 				if (prandom_u32() & 1)
 					goto retry;
 			}
 		}
-		
-		if (sock.socket && msock.socket) {
-			break;
-		}
-/*
-		if (connection->cstate <= C_DISCONNECTING)
-			goto out_release_sockets;
+
 		if (signal_pending(current)) {
 			flush_signals(current);
 			smp_rmb();
@@ -548,15 +555,13 @@ randomize:
 		ok = cache_socket_okay(&sock.socket);
 		ok = cache_socket_okay(&msock.socket) && ok;
 	} while (!ok);
-*/	
-	count++;
-	cache_warn("Try to establish connection, count = %d\n", count);
-	}while(count < 5);
 	
-	if (ad.s_listen){
+	if (ad.s_listen)
 		sock_close(ad.s_listen);
-	}
 
+	/* if peer is restarted, change the owner of volume */
+	
+	hb_restore_owner();
 	sock.socket->sk->sk_reuse = SK_CAN_REUSE;
 	msock.socket->sk->sk_reuse = SK_CAN_REUSE;
 
@@ -569,8 +574,8 @@ randomize:
 	sock.socket->sk->sk_sndtimeo =
 	sock.socket->sk->sk_rcvtimeo = ping_timeo*4*HZ/10;
 
-	msock.socket->sk->sk_rcvtimeo =
-	msock.socket->sk->sk_sndtimeo = ping_timeo*HZ;
+	msock.socket->sk->sk_rcvtimeo = ping_timeo*HZ;
+	msock.socket->sk->sk_sndtimeo = timeout * HZ / 10;
 
 	/* NOT YET ...
 	 * sock.socket->sk->sk_sndtimeo = connection->net_conf->timeout*HZ/10;
@@ -645,8 +650,11 @@ retry:
 		complete(&thi->start);
 		cache_socket_receive(connection);
 		
-		if(!peer_is_good)
+		if(!peer_is_good && get_t_state(&connection->receiver) == RUNNING) {
+			cache_free_sock(&connection->data);
+			cache_dbg("wait for incoming connection.\n");
 			goto retry;
+		}
 	}
 	
 	return 0;
@@ -743,7 +751,6 @@ static void cache_conn_destroy(struct dcache *dcache)
 	if(!(cache_conn = dcache->conn))
 		return;
 
-	/* FIXME thread crash when exit */
 	cache_thread_stop(&cache_conn->receiver);
 	cache_thread_stop(&cache_conn->asender);
 	

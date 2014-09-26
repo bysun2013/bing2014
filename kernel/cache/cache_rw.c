@@ -721,6 +721,11 @@ static int dcache_do_writepage(struct dcache_page *dcache_page,
 	struct bio* bio = mpd->bio;
 	struct dcache *dcache = dcache_page->dcache;
 	struct block_device * bdev = dcache->bdev;
+	
+	if((dcache_page->dirty_bitmap & 0xff) != 0xff) {
+		cache_ignore("This page isn't dirty entirely.\n");
+		goto confused;
+	}
 
 	if (bio && (mpd->last_page_in_bio != dcache_page->index -1))
 		bio = dcache_mpage_bio_submit(bio, WRITE);
@@ -945,7 +950,7 @@ continue_unlock:
 		
 sync_again:
 		/* submit page index of written pages to peer */
-/*		if(dcache->owner && wrote_index && peer_is_good) {
+		if(dcache->owner && wrote_index && peer_is_good) {
 			int m;
 			for(m = wrote_index; m < PVEC_NORMAL_SIZE; m++)
 				wb_index[m]= -1;
@@ -961,7 +966,7 @@ sync_again:
 				cache_dbg("ok, get wrote ack, go on!\n");
 			}			
 		}
-*/
+
 		inactive_writeback_add_list(&list_inactive);
 		active_writeback_add_list(&list_active);
 	}	

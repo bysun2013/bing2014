@@ -440,7 +440,7 @@ static int lru_list_shrink(void * args)
 				continue;
 		}
 		schedule_timeout(msecs_to_jiffies(ACTIVE_TIMEOUT * 1000)); /* transform second to millisecond */
-		cache_dbg("shrink list begin,inactive is %d,active is %d\n", \
+		cache_ignore("shrink list begin,inactive is %d,active is %d\n", \
 					atomic_read(&inactive_list_length),atomic_read(&active_list_length));
 		shrink_inactive_list();
 		shrink_active_list();

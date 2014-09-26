@@ -44,8 +44,8 @@
 
 #define CACHE_VERSION "0.99"
 
-/* by default, peer is good */
-bool peer_is_good = true;
+/* by default, peer is false */
+bool peer_is_good = false;
 
 static int ctr_major_cache;
 static char dcache_ctr_name[] = "dcache_ctl";
@@ -584,11 +584,11 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 	pgoff_t page_index;
 
 	cache_ignore("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
-/*	
+	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);		
 	}
-*/	
+	
 	while (size && tio_index < pg_cnt) {
 			unsigned int current_bytes, bytes = PAGE_SIZE;
 			unsigned int  skip_blk=0;
@@ -620,7 +620,7 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			
 			tio_index++;
 	}
-/*	
+	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		cache_dbg("wait for data ack.\n");
 		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
@@ -628,9 +628,9 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			cache_request_dequeue(req);
 		}else
 			kmem_cache_free(cache_request_cache, req);
-		cache_dbg("ok, get data ack, go on!\n"); 		
-	}	
-*/	
+		cache_dbg("ok, get data ack, go on!\n");
+	}
+	
 	return err;
 }
 
@@ -716,7 +716,7 @@ void* init_volume_dcache(const char *path, int owner, int port)
 	dcache->owner = vol_owner;
 	dcache->origin_owner = vol_owner;
 
-	//dcache->conn = cache_conn_init(dcache);
+	dcache->conn = cache_conn_init(dcache);
 
 	dcache_total_volume++;
 	
@@ -747,7 +747,7 @@ void del_volume_dcache(void *volume_dcachep)
 	if(dcache->owner)
 		writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 
-	//cache_conn_exit(dcache);
+	cache_conn_exit(dcache);
 	
 	dcache_delete_radix_tree(dcache);
 	
