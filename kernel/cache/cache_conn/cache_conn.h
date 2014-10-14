@@ -227,6 +227,7 @@ struct cache_connection{
 	atomic_t packet_seq;
 	/* sender side */
 	struct cache_work_queue sender_work;
+	int ko_count;
 
 	/* receiver side */
 	struct cache_epoch *current_epoch;

@@ -396,6 +396,7 @@ static int prepare_listen_socket(struct cache_connection *connection, struct acc
 	struct sockaddr_in6 my_addr;
 	struct socket *s_listen;
 	const char *what;
+	int ping_timeo = 10;
 /*
 	rcu_read_lock();
 	nc = rcu_dereference(connection->net_conf);
@@ -420,6 +421,9 @@ static int prepare_listen_socket(struct cache_connection *connection, struct acc
 
 	s_listen->sk->sk_reuse = SK_CAN_REUSE; /* SO_REUSEADDR */
 	//cache_setbufsize(s_listen, sndbuf_size, rcvbuf_size);
+
+	s_listen->sk->sk_sndtimeo =
+	s_listen->sk->sk_rcvtimeo = ping_timeo*4*HZ/10;
 
 	what = "bind before listen";
 	err = s_listen->ops->bind(s_listen, (struct sockaddr *)&my_addr, my_addr_len);
@@ -510,6 +514,9 @@ static int conn_connect(struct cache_connection *connection)
 		}
 
 retry:
+		if (get_t_state(&connection->receiver) == EXITING)
+			goto out_release_sockets;
+
 		s = cache_wait_for_connect(connection, &ad);
 
 		if (s) {
@@ -554,14 +561,17 @@ randomize:
 
 		ok = cache_socket_okay(&sock.socket);
 		ok = cache_socket_okay(&msock.socket) && ok;
-	} while (!ok);
+	} while(!ok && get_t_state(&connection->receiver) == RUNNING);
 	
+	if (get_t_state(&connection->receiver) == EXITING)
+		goto out_release_sockets;
+
 	if (ad.s_listen)
 		sock_close(ad.s_listen);
 
 	/* if peer is restarted, change the owner of volume */
-	
 	hb_restore_owner();
+	
 	sock.socket->sk->sk_reuse = SK_CAN_REUSE;
 	msock.socket->sk->sk_reuse = SK_CAN_REUSE;
 
@@ -604,6 +614,8 @@ randomize:
 	connection->data.socket = sock.socket;
 	connection->meta.socket = msock.socket;
 	connection->last_received = jiffies;
+	if(connection->ko_count < 7)
+		connection->ko_count = 7;
 
 //	connection->data.socket->sk->sk_sndtimeo = timeout;
 //	connection->data.socket->sk->sk_rcvtimeo = MAX_SCHEDULE_TIMEOUT;
@@ -643,7 +655,7 @@ retry:
 	do {
 		cache_dbg("Try to establish connection.\n");
 		err = conn_connect(connection);
-	} while (err == -1);
+	} while (err == -1 && get_t_state(&connection->receiver) == RUNNING);
 	
 	if (err == 0) {
 		cache_thread_start(&connection->asender);
@@ -700,6 +712,7 @@ static struct cache_connection *cache_conn_create(struct dcache *dcache)
 	mutex_init(&connection->cstate_mutex);
 	init_waitqueue_head(&connection->ping_wait);
 	kref_init(&connection->kref);
+	connection->ko_count = 7;  /* refer to DRBD */
 
 	cache_init_workqueue(&connection->sender_work);
 	mutex_init(&connection->data.mutex);

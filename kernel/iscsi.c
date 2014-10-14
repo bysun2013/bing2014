@@ -1390,6 +1390,16 @@ static void execute_task_management(struct iscsi_cmnd *req)
 	u32 lun;
 	int function = req_hdr->function & ISCSI_FUNCTION_MASK;
 
+	/*add to abort Unit Reset*/
+	switch (function) {
+	case ISCSI_FUNCTION_LOGICAL_UNIT_RESET:
+	case ISCSI_FUNCTION_TARGET_WARM_RESET:
+	case ISCSI_FUNCTION_TARGET_COLD_RESET:
+		return;
+	default:
+		break;
+	}
+
 	rsp = iscsi_cmnd_create_rsp_cmnd(req, 1);
 	rsp_hdr = (struct iscsi_task_rsp_hdr *)&rsp->pdu.bhs;
 

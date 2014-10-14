@@ -63,6 +63,29 @@ static unsigned int prepare_header(struct cache_connection *conn,
 		return prepare_header80(buffer, cmd, size);
 }
 
+
+/* called on sndtimeo
+ * returns false if we should retry,
+ * true if we think connection is dead
+ */
+static int we_should_drop_the_connection(struct cache_connection *connection, struct socket *sock)
+{
+	int drop_it;
+
+	drop_it =  !peer_is_good;
+
+	if (drop_it)
+		return true;
+
+	drop_it = !--connection->ko_count;
+	if (!drop_it) {
+		cache_err("[%s/%d] sock_sendmsg time expired, ko = %u\n",
+			 current->comm, current->pid, connection->ko_count);
+	}
+
+	return drop_it;
+}
+
 /*
  * you must have down()ed the appropriate [m]sock_mutex elsewhere!
  */
@@ -93,15 +116,15 @@ static int cache_send(struct cache_connection *connection, struct socket *sock,
 		 *
 		 * -EAGAIN on timeout, -EINTR on signal.
 		 */
-/* THINK
- * do we need to block cache_SIG if sock == &meta.socket ??
- * otherwise wake_asender() might interrupt some send_*Ack !
- */
 
 		rv = kernel_sendmsg(sock, &msg, &iov, 1, size);
 		if (rv == -EAGAIN) {
-			cache_warn("Send data fail, try again.\n");
-			continue;
+			if(we_should_drop_the_connection(connection, sock))
+				break;
+			else{
+				cache_dbg("Send data fail, try again.\n");
+				continue;
+			}
 		}
 		if (rv == -EINTR) {
 			flush_signals(current);
@@ -113,18 +136,13 @@ static int cache_send(struct cache_connection *connection, struct socket *sock,
 		iov.iov_base += rv;
 		iov.iov_len  -= rv;
 	} while (sent < size);
-/*
-	if (sock == connection->data.socket)
-		clear_bit(NET_CONGESTED, &connection->flags);
-*/
+
 	if (rv <= 0) {
 		if (rv != -EAGAIN) {
 			cache_err("%s_sendmsg returned %d\n",
 				 sock == connection->meta.socket ? "msock" : "sock",
 				 rv);
-//			conn_request_state(connection, NS(conn, C_BROKEN_PIPE), CS_HARD);
-		} //else
-			//conn_request_state(connection, NS(conn, C_TIMEOUT), CS_HARD);*/
+		}
 	}
 
 	return sent;
@@ -214,8 +232,13 @@ static int _cache_send_page(struct cache_connection*conn, struct page *page,
 		sent = socket->ops->sendpage(socket, page, offset, len, msg_flags);
 		if (sent <= 0) {
 			if (sent == -EAGAIN) {
-				cache_warn("send page fail, try again.\n");
-				continue;
+				if(we_should_drop_the_connection(conn, conn->data.socket))
+					break;
+				else{
+					cache_dbg("Send data fail, try again.\n");
+					continue;
+				}
+
 			}
 			if (sent < 0)
 				err = sent;

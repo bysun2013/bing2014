@@ -29,6 +29,8 @@
 #include <linux/inet.h>
 
 #include "cache_def.h"
+#include "cache_wb.h"
+#include "cache_conn/cache_conn.h"
 #include "iet_cache_u.h"
 
 int machine_type;
@@ -156,20 +158,27 @@ static int lun_update(unsigned long ptr)
 
 }
 
-/* called when peer recovery */
+/* 
+* called when peer recovery,  
+* it's experimental, and need coordinate with iscsi client
+*/
 void hb_restore_owner(void)
 {
 	struct dcache *dcache;
 	
 	if(peer_is_good)
 		return;	
-	peer_is_good = true;
-	
+
+	/* FIXME: the sequence between peer_is_good and writeback, yes? */
 	mutex_lock(&dcache_list_lock);
-	list_for_each_entry(dcache, &dcache_list, list){
-		dcache->owner = dcache->origin_owner;
+	list_for_each_entry(dcache, &dcache_list, list) {
+			if(dcache->owner == true && dcache->origin_owner == false)
+				writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
+			dcache->owner = dcache->origin_owner;
 	}
 	mutex_unlock(&dcache_list_lock);
+
+	peer_is_good = true;
 }
 
 /* called when peer crash */
@@ -179,11 +188,13 @@ void hb_change_state(void)
 
 	if(!peer_is_good)
 		return;
+
 	peer_is_good = false;
 	
 	mutex_lock(&dcache_list_lock);
-	list_for_each_entry(dcache, &dcache_list, list){
+	list_for_each_entry(dcache, &dcache_list, list) {
 		dcache->owner = true;
+		cache_thread_stop_nowait(&dcache->conn->asender);
 	}
 	mutex_unlock(&dcache_list_lock);
 }
@@ -202,14 +213,14 @@ static int hb_report_peer_state(unsigned long ptr)
 	err = copy_from_user(&info, (void *)ptr, sizeof(info));
 	if (err)
 		return -EFAULT;
+
+	cache_dbg("HB sent signal to dcache\n");
 	if(peer_is_good){
-		if(strcmp(msg, "$0") == 0){
-			return 0;
-		}else if(strcmp(msg, "$1") ==0){
+		if(strcmp(msg, "$1") ==0){
 			hb_change_state();
 			cache_alert("peer crash, take over all the volumes.\n");
 		}
-	}else	{
+	}else{
 		if(strcmp(msg, "$0") == 0){
 			hb_restore_owner();
 			cache_alert("peer recover, restore the owner of volumes.\n");

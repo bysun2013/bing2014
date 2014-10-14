@@ -227,8 +227,10 @@ int cache_writeback_thread(void *data)
 	cache_dbg("WB Thread ends, path= %s\n", dcache->path);
 
 	del_timer(&dcache->wakeup_timer);
+
 	/* Flush any work that raced with us exiting */
-	writeback_single(dcache, DCACHE_WB_SYNC_ALL,  LONG_MAX, false);
+	if(!peer_is_good)
+		writeback_single(dcache, DCACHE_WB_SYNC_NONE,  LONG_MAX, false);
 	
 	complete_all(&dcache->wb_completion);
 	return 0;
@@ -277,7 +279,7 @@ static int cache_forker_thread(void * args)
 			    time_after(jiffies, dcache->last_active +
 						cache_longest_inactive())) {
 				task = dcache->task;
-				 dcache->task = NULL;
+				dcache->task = NULL;
 				action = KILL_THREAD;
 				break;
 			}
@@ -331,15 +333,16 @@ static int cache_forker_thread(void * args)
 static int writeback_all(void)
 {
 	struct dcache *dcache;
-	
-	mutex_lock(&dcache_list_lock);
-	list_for_each_entry(dcache, &dcache_list, list) {
-		mutex_unlock(&dcache_list_lock);
-		if(dcache->owner)
-			writeback_single(dcache,  DCACHE_WB_SYNC_ALL, LONG_MAX, false);
+
+	if(!peer_is_good) {
 		mutex_lock(&dcache_list_lock);
+		list_for_each_entry(dcache, &dcache_list, list) {
+			mutex_unlock(&dcache_list_lock);
+			writeback_single(dcache,  DCACHE_WB_SYNC_ALL, LONG_MAX, false);
+			mutex_lock(&dcache_list_lock);
+		}
+		mutex_unlock(&dcache_list_lock);
 	}
-	mutex_unlock(&dcache_list_lock);
 	
 	return 0;
 }

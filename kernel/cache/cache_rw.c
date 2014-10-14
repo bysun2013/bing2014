@@ -955,7 +955,10 @@ sync_again:
 			for(m = wrote_index; m < PVEC_NORMAL_SIZE; m++)
 				wb_index[m]= -1;
 			
-			cache_send_wrote(dcache->conn, wb_index, m, &req);
+			err = cache_send_wrote(dcache->conn, wb_index, m, &req);
+			if(err)
+				goto sync_again;
+			
 			cache_dbg("wait for wrote ack.\n");
 			if(wait_for_completion_timeout(&req->done, HZ*60) == 0 && peer_is_good) {
 				cache_warn("timeout when wait for wrote ack.\n");

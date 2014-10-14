@@ -586,7 +586,9 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 	cache_ignore("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
 	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
-		cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>9, &req);		
+		err = cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>SECTOR_SHIFT, &req);
+		if(err)
+			return err;
 	}
 	
 	while (size && tio_index < pg_cnt) {
@@ -744,7 +746,7 @@ void del_volume_dcache(void *volume_dcachep)
 		wait_for_completion(&dcache->wb_completion);
 	}
 
-	if(dcache->owner)
+	if(dcache->owner && !peer_is_good)
 		writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 
 	cache_conn_exit(dcache);

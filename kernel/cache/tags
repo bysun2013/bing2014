@@ -1,0 +1,519 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.9~svn20110310	//
+ACTIVE_TIMEOUT	cache_lru.h	29;"	d
+ADDR_LEN	cache_def.h	34;"	d
+CACHE_CONN_H	cache_conn/cache_conn.h	21;"	d
+CACHE_DBG_H	cache_dbg.h	21;"	d
+CACHE_DEBUG_ENABLE_FLAGS	cache_dbg.h	27;"	d
+CACHE_LRU_H	cache_lru.h	20;"	d
+CACHE_MAGIC	cache_conn/cache_conn.h	46;"	d
+CACHE_PROC_H	cache_proc.h	20;"	d
+CACHE_RECEIVER_H	cache_conn/cache_receiver.h	21;"	d
+CACHE_RW_H	cache_rw.h	21;"	d
+CACHE_VERSION	cache.c	/^MODULE_VERSION(CACHE_VERSION);$/;"	v
+CACHE_VERSION	cache.c	45;"	d	file:
+CACHE_WB_H	cache_wb.h	20;"	d
+C_AHEAD	cache_conn/cache_conn.h	/^	C_AHEAD,$/;"	e	enum:cache_conn_state
+C_BEHIND	cache_conn/cache_conn.h	/^	C_BEHIND,$/;"	e	enum:cache_conn_state
+C_BROKEN_PIPE	cache_conn/cache_conn.h	/^	C_BROKEN_PIPE,$/;"	e	enum:cache_conn_state
+C_CONNECTED	cache_conn/cache_conn.h	/^	C_CONNECTED,      \/* we have introduced each other *\/$/;"	e	enum:cache_conn_state
+C_DISCONNECTING	cache_conn/cache_conn.h	/^	C_DISCONNECTING,  \/* Temporal state on the way to StandAlone. *\/$/;"	e	enum:cache_conn_state
+C_MASK	cache_conn/cache_conn.h	/^	C_MASK = 31$/;"	e	enum:cache_conn_state
+C_NETWORK_FAILURE	cache_conn/cache_conn.h	/^	C_NETWORK_FAILURE,$/;"	e	enum:cache_conn_state
+C_PAUSED_SYNC_S	cache_conn/cache_conn.h	/^	C_PAUSED_SYNC_S,$/;"	e	enum:cache_conn_state
+C_PAUSED_SYNC_T	cache_conn/cache_conn.h	/^	C_PAUSED_SYNC_T,$/;"	e	enum:cache_conn_state
+C_PROTOCOL_ERROR	cache_conn/cache_conn.h	/^	C_PROTOCOL_ERROR,$/;"	e	enum:cache_conn_state
+C_STANDALONE	cache_conn/cache_conn.h	/^	C_STANDALONE,$/;"	e	enum:cache_conn_state
+C_STARTING_SYNC_S	cache_conn/cache_conn.h	/^	C_STARTING_SYNC_S,  \/* starting full sync by admin request. *\/$/;"	e	enum:cache_conn_state
+C_STARTING_SYNC_T	cache_conn/cache_conn.h	/^	C_STARTING_SYNC_T,  \/* starting full sync by admin request. *\/$/;"	e	enum:cache_conn_state
+C_SYNC_SOURCE	cache_conn/cache_conn.h	/^	C_SYNC_SOURCE,$/;"	e	enum:cache_conn_state
+C_SYNC_TARGET	cache_conn/cache_conn.h	/^	C_SYNC_TARGET,$/;"	e	enum:cache_conn_state
+C_TEAR_DOWN	cache_conn/cache_conn.h	/^	C_TEAR_DOWN,$/;"	e	enum:cache_conn_state
+C_TIMEOUT	cache_conn/cache_conn.h	/^	C_TIMEOUT,$/;"	e	enum:cache_conn_state
+C_UNCONNECTED	cache_conn/cache_conn.h	/^	C_UNCONNECTED,    \/* >= C_UNCONNECTED -> inc_net() succeeds *\/$/;"	e	enum:cache_conn_state
+C_VERIFY_S	cache_conn/cache_conn.h	/^	C_VERIFY_S,$/;"	e	enum:cache_conn_state
+C_VERIFY_T	cache_conn/cache_conn.h	/^	C_VERIFY_T,$/;"	e	enum:cache_conn_state
+C_WF_BITMAP_S	cache_conn/cache_conn.h	/^	C_WF_BITMAP_S,$/;"	e	enum:cache_conn_state
+C_WF_BITMAP_T	cache_conn/cache_conn.h	/^	C_WF_BITMAP_T,$/;"	e	enum:cache_conn_state
+C_WF_CONNECTION	cache_conn/cache_conn.h	/^	C_WF_CONNECTION,$/;"	e	enum:cache_conn_state
+C_WF_REPORT_PARAMS	cache_conn/cache_conn.h	/^	C_WF_REPORT_PARAMS, \/* we have a socket *\/$/;"	e	enum:cache_conn_state
+C_WF_SYNC_UUID	cache_conn/cache_conn.h	/^	C_WF_SYNC_UUID,$/;"	e	enum:cache_conn_state
+DCACHE_CONFIG_H	cache_config.h	20;"	d
+DCACHE_DEF_H	cache_def.h	20;"	d
+DCACHE_H	cache.h	21;"	d
+DCACHE_TAG_DIRTY	cache_rw.h	25;"	d
+DCACHE_TAG_TOWRITE	cache_rw.h	27;"	d
+DCACHE_TAG_WRITEBACK	cache_rw.h	26;"	d
+DCACHE_WB_REASON_BACKGROUND	cache_wb.h	/^	DCACHE_WB_REASON_BACKGROUND,$/;"	e	enum:cache_wb_reason
+DCACHE_WB_REASON_FORKER_THREAD	cache_wb.h	/^	DCACHE_WB_REASON_FORKER_THREAD,$/;"	e	enum:cache_wb_reason
+DCACHE_WB_REASON_MAX	cache_wb.h	/^	DCACHE_WB_REASON_MAX,$/;"	e	enum:cache_wb_reason
+DCACHE_WB_REASON_PERIODIC	cache_wb.h	/^	DCACHE_WB_REASON_PERIODIC,$/;"	e	enum:cache_wb_reason
+DCACHE_WB_REASON_SYNC	cache_wb.h	/^	DCACHE_WB_REASON_SYNC,$/;"	e	enum:cache_wb_reason
+DCACHE_WB_SYNC_ALL	cache_rw.h	/^	DCACHE_WB_SYNC_ALL,	\/* Wait on every mapping *\/$/;"	e	enum:iscsi_wb_sync_modes
+DCACHE_WB_SYNC_NONE	cache_rw.h	/^	DCACHE_WB_SYNC_NONE,	\/* Don't wait on anything *\/$/;"	e	enum:iscsi_wb_sync_modes
+DEL_MAX_SIZE	cache_rw.c	436;"	d	file:
+EXITING	cache_conn/cache_conn.h	/^	EXITING,$/;"	e	enum:cache_thread_state
+LRU_LIST_RATIO	cache_lru.h	36;"	d
+LRU_TOTAL_RATIO	cache_lru.h	34;"	d
+MIN_INACTIVE_LEN	cache_lru.h	32;"	d
+NONE	cache_conn/cache_conn.h	/^	NONE,$/;"	e	enum:cache_thread_state
+PATH_LEN	cache_def.h	35;"	d
+PFX	cache_dbg.h	30;"	d
+PVEC_MAX_SIZE	cache_def.h	53;"	d
+PVEC_NORMAL_SIZE	cache_def.h	52;"	d
+P_DATA	cache_conn/cache_conn.h	/^	P_DATA		      = 0x00,$/;"	e	enum:cache_packet
+P_DATA_ACK	cache_conn/cache_conn.h	/^	P_DATA_ACK	      = 0x02, \/* Response to P_DATA *\/ $/;"	e	enum:cache_packet
+P_DATA_WRITTEN	cache_conn/cache_conn.h	/^	P_DATA_WRITTEN	      = 0x01, \/* Used to delete data block written *\/$/;"	e	enum:cache_packet
+P_INITIAL_DATA	cache_conn/cache_conn.h	/^	P_INITIAL_DATA	      = 0xfff2, \/* First Packet on the Socket *\/$/;"	e	enum:cache_packet
+P_INITIAL_META	cache_conn/cache_conn.h	/^	P_INITIAL_META	      = 0xfff1, \/* First Packet on the MetaSock *\/$/;"	e	enum:cache_packet
+P_WRITTEN_ACK	cache_conn/cache_conn.h	/^	P_WRITTEN_ACK	      = 0x03, \/* Response to P_DATA_WRITTEN *\/ $/;"	e	enum:cache_packet
+REQUEST_FROM_OUT	cache_def.h	/^	REQUEST_FROM_OUT,$/;"	e	enum:request_from
+REQUEST_FROM_PEER	cache_def.h	/^	REQUEST_FROM_PEER = 0,$/;"	e	enum:request_from
+RESTARTING	cache_conn/cache_conn.h	/^	RESTARTING$/;"	e	enum:cache_thread_state
+RETRY_GRT_PAGE	cache.c	121;"	d	file:
+RUNNING	cache_conn/cache_conn.h	/^	RUNNING,$/;"	e	enum:cache_thread_state
+SECTORS_ONE_PAGE	cache_def.h	39;"	d
+SECTORS_ONE_PAGE_SHIFT	cache_def.h	40;"	d
+SECTOR_SHIFT	cache_def.h	37;"	d
+SECTOR_SIZE	cache_def.h	38;"	d
+WRITEBACK_TAG_BATCH	cache_rw.c	300;"	d	file:
+__packed	cache_conn/cache_conn.h	/^} __packed;$/;"	v	typeref:struct:p_block_ack
+__packed	cache_conn/cache_conn.h	/^} __packed;$/;"	v	typeref:struct:p_block_wrote
+__packed	cache_conn/cache_conn.h	/^} __packed;$/;"	v	typeref:struct:p_data
+__packed	cache_conn/cache_conn.h	/^} __packed;$/;"	v	typeref:struct:p_header80
+__packed	cache_conn/cache_conn.h	/^} __packed;$/;"	v	typeref:struct:p_wrote_ack
+__send_command	cache_conn/cache_sender.c	/^static int __send_command(struct cache_connection *conn,$/;"	f	file:
+__this_module	dcache.mod.c	/^struct module __this_module$/;"	v	typeref:struct:module
+__used	dcache.mod.c	/^__used$/;"	v	file:
+__used	dcache.mod.c	/^__used$/;"	v	typeref:struct:____versions	file:
+_cache_no_send_page	cache_conn/cache_left.c	/^static int _cache_no_send_page(struct cache_connection*conn, struct page *page,$/;"	f	file:
+_cache_send_ack	cache_conn/cache_left.c	/^static int _cache_send_ack(struct cache_peer_device *peer_device, enum cache_packet cmd,$/;"	f	file:
+_cache_send_page	cache_conn/cache_sender.c	/^static int _cache_send_page(struct cache_connection*conn, struct page *page,$/;"	f	file:
+_cache_send_pages	cache_conn/cache_left.c	/^static int _cache_send_pages(struct cache_connection *conn, struct page **pages, $/;"	f	file:
+_cache_send_zc_pages	cache_conn/cache_sender.c	/^static int _cache_send_zc_pages(struct cache_connection *conn, struct page **pages, $/;"	f	file:
+_cache_thread_stop	cache_conn/cache_conn.c	/^void _cache_thread_stop(struct cache_thread *thi, int restart, int wait)$/;"	f
+_dcache_read	cache.c	/^static int _dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos, enum request_from from)$/;"	f	file:
+_dcache_read_mpage	cache_rw.c	/^static int _dcache_read_mpage(struct dcache *dcache, struct dcache_page **dcache_pages, $/;"	f	file:
+_dcache_rw_page_blocks	cache_rw.c	/^static int _dcache_rw_page_blocks(struct dcache_page *dcache_page, unsigned char bitmap, int rw)$/;"	f	file:
+_dcache_write	cache.c	/^int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos, enum request_from from)$/;"	f
+accept_wait_data	cache_conn/cache_conn.h	/^struct accept_wait_data {$/;"	s
+active	cache_conn/cache_conn.h	/^	atomic_t active;     \/* increased on every req. added, and dec on every finished. *\/$/;"	m	struct:cache_epoch
+active	cache_def.h	/^	active,   \/*inactive list*\/$/;"	e	enum:page_site
+active_add_page	cache_lru.c	/^void active_add_page(struct dcache_page *dcache_page)$/;"	f
+active_length	cache_lru.c	/^long active_length(void)$/;"	f
+active_list	cache_lru.c	/^LIST_HEAD(active_list);$/;"	v
+active_list_length	cache_lru.c	/^atomic_t active_list_length;$/;"	v
+active_lock	cache_lru.c	/^spinlock_t active_lock;$/;"	v
+active_writeback_add_list	cache_lru.c	/^void active_writeback_add_list(struct list_head *list)$/;"	f
+asender	cache_conn/cache_conn.h	/^	struct cache_thread asender; \/* used for data ack and wrote index *\/$/;"	m	struct:cache_connection	typeref:struct:cache_connection::cache_thread
+barrier_nr	cache_conn/cache_conn.h	/^	unsigned int barrier_nr;$/;"	m	struct:cache_epoch
+bdev	cache_def.h	/^	struct block_device *bdev;$/;"	m	struct:dcache	typeref:struct:dcache::block_device
+bio	cache_rw.c	/^	struct bio *bio;$/;"	m	struct:cache_mpage_data	typeref:struct:cache_mpage_data::bio	file:
+bios_remaining	cache_rw.c	/^	atomic_t bios_remaining;$/;"	m	struct:tio_work	file:
+blksize	cache_conn/cache_conn.h	/^	u32	    blksize;$/;"	m	struct:p_block_ack
+block_id	cache_conn/cache_conn.h	/^	u64	    block_id;$/;"	m	struct:p_block_ack
+block_id	cache_conn/cache_conn.h	/^	u64	    block_id;$/;"	m	struct:p_data
+cache	cache_wb.h	/^	struct dcache *cache;$/;"	m	struct:cache_writeback_work	typeref:struct:cache_writeback_work::dcache
+cache_alert	cache_dbg.h	75;"	d
+cache_alloc_socket	cache_conn/cache_conn.c	/^static int cache_alloc_socket(struct cache_socket *socket)$/;"	f	file:
+cache_cmd_handler	cache_conn/cache_receiver.c	/^static struct data_cmd cache_cmd_handler[] = {$/;"	v	typeref:struct:data_cmd	file:
+cache_conn_create	cache_conn/cache_conn.c	/^static struct cache_connection *cache_conn_create(struct dcache *dcache)$/;"	f	file:
+cache_conn_destroy	cache_conn/cache_conn.c	/^static void cache_conn_destroy(struct dcache *dcache)$/;"	f	file:
+cache_conn_exit	cache_conn/cache_conn.c	/^int cache_conn_exit(struct dcache *dcache)$/;"	f
+cache_conn_init	cache_conn/cache_conn.c	/^struct cache_connection *cache_conn_init(struct dcache *dcache)$/;"	f
+cache_conn_state	cache_conn/cache_conn.h	/^enum cache_conn_state {$/;"	g
+cache_connection	cache_conn/cache_conn.h	/^struct cache_connection{$/;"	s
+cache_dbg	cache_dbg.h	67;"	d
+cache_dirty_background_ratio	cache_wb.c	/^unsigned long cache_dirty_background_ratio = 10;$/;"	v
+cache_dirty_expire_interval	cache_wb.c	/^unsigned int cache_dirty_expire_interval = 30 * 100; \/* centiseconds *\/$/;"	v
+cache_dirty_writeback_interval	cache_wb.c	/^unsigned int cache_dirty_writeback_interval = 5 * 100; \/* centiseconds *\/$/;"	v
+cache_do_writeback	cache_wb.c	/^static long cache_do_writeback(struct dcache *dcache)$/;"	f	file:
+cache_emerg	cache_dbg.h	77;"	d
+cache_epoch	cache_conn/cache_conn.h	/^struct cache_epoch {$/;"	s
+cache_err	cache_dbg.h	73;"	d
+cache_forker_thread	cache_wb.c	/^static int cache_forker_thread(void * args)$/;"	f	file:
+cache_free_sock	cache_conn/cache_conn.c	/^void cache_free_sock(struct cache_socket *cache_socket)$/;"	f
+cache_free_socket	cache_conn/cache_conn.c	/^static void cache_free_socket(struct cache_socket *socket)$/;"	f	file:
+cache_header_size	cache_conn/cache_sender.c	/^unsigned int cache_header_size(struct cache_connection *conn)$/;"	f
+cache_ignore	cache_dbg.h	66;"	d
+cache_incoming_connection	cache_conn/cache_left.c	/^static void cache_incoming_connection(struct sock *sk)$/;"	f	file:
+cache_info	cache_dbg.h	69;"	d
+cache_init_workqueue	cache_conn/cache_conn.c	/^static void cache_init_workqueue(struct cache_work_queue* wq)$/;"	f	file:
+cache_longest_inactive	cache_wb.c	/^static unsigned long cache_longest_inactive(void)$/;"	f	file:
+cache_mpage_data	cache_rw.c	/^struct cache_mpage_data {$/;"	s	file:
+cache_mreceiver	cache_conn/cache_conn.c	/^int cache_mreceiver(struct cache_thread *thi)$/;"	f
+cache_msocket_receive	cache_conn/cache_receiver.c	/^int cache_msocket_receive(struct cache_connection *connection)$/;"	f
+cache_packet	cache_conn/cache_conn.h	/^enum cache_packet {$/;"	g
+cache_proc_entries	cache_proc.c	/^static struct proc_entries cache_proc_entries[] =$/;"	v	typeref:struct:proc_entries	file:
+cache_procfs_exit	cache_proc.c	/^void cache_procfs_exit(void)$/;"	f
+cache_procfs_init	cache_proc.c	/^int cache_procfs_init(void)$/;"	f
+cache_queue_work	cache_conn/cache_worker.c	/^cache_queue_work(struct cache_work_queue *q, struct cache_work *w)$/;"	f	file:
+cache_receiver	cache_conn/cache_conn.c	/^int cache_receiver(struct cache_thread *thi)$/;"	f
+cache_recv	cache_conn/cache_receiver.c	/^static int cache_recv(struct cache_socket *cache_socket, void *buf, size_t size)$/;"	f	file:
+cache_recv_all	cache_conn/cache_receiver.c	/^static int cache_recv_all(struct cache_socket *cache_socket, void *buf, size_t size)$/;"	f	file:
+cache_recv_all_warn	cache_conn/cache_receiver.c	/^static int cache_recv_all_warn(struct cache_socket *cache_socket, void *buf, size_t size)$/;"	f	file:
+cache_recv_header	cache_conn/cache_receiver.c	/^int cache_recv_header(struct cache_connection *connection, struct cache_socket *cache_socket, $/;"	f
+cache_recv_short	cache_conn/cache_receiver.c	/^int cache_recv_short(struct socket *sock, void *buf, size_t size, int flags)$/;"	f
+cache_request	cache_conn/cache_conn.h	/^struct cache_request{$/;"	s
+cache_request_alloc	cache_conn/cache_request.c	/^struct cache_request * cache_request_alloc(struct cache_connection *conn, u32 seq_num)$/;"	f
+cache_request_cache	cache.c	/^struct kmem_cache *cache_request_cache;$/;"	v	typeref:struct:kmem_cache
+cache_request_dequeue	cache_conn/cache_request.c	/^void cache_request_dequeue(struct cache_request *req)$/;"	f
+cache_request_enqueue	cache_conn/cache_request.c	/^void cache_request_enqueue(struct cache_request *req)$/;"	f
+cache_send	cache_conn/cache_sender.c	/^static int cache_send(struct cache_connection *connection, struct socket *sock,$/;"	f	file:
+cache_send_ack	cache_conn/cache_left.c	/^int cache_send_ack(struct cache_peer_device *peer_device, enum cache_packet cmd,$/;"	f
+cache_send_all	cache_conn/cache_sender.c	/^static int cache_send_all(struct cache_connection *connection, struct socket *sock, void *buffer,$/;"	f	file:
+cache_send_data_ack	cache_conn/cache_sender.c	/^int cache_send_data_ack(struct cache_connection *connection,  u32 seq_num, u64 sector)$/;"	f
+cache_send_dblock	cache_conn/cache_sender.c	/^int cache_send_dblock(struct cache_connection *connection, struct page **pages, $/;"	f
+cache_send_wrote	cache_conn/cache_sender.c	/^int cache_send_wrote(struct cache_connection *connection, $/;"	f
+cache_send_wrote_ack	cache_conn/cache_sender.c	/^int cache_send_wrote_ack(struct cache_connection *connection,  u32 seq_num)$/;"	f
+cache_seq_next	cache_proc.c	/^static void *cache_seq_next(struct seq_file *m, void *v, loff_t *pos)$/;"	f	file:
+cache_seq_op	cache_proc.c	/^struct seq_operations cache_seq_op = {$/;"	v	typeref:struct:seq_operations
+cache_seq_show	cache_proc.c	/^static int cache_seq_show(struct seq_file *m, void *p)$/;"	f	file:
+cache_seq_start	cache_proc.c	/^static void *cache_seq_start(struct seq_file *m, loff_t *pos)$/;"	f	file:
+cache_seq_stop	cache_proc.c	/^static void cache_seq_stop(struct seq_file *m, void *v)$/;"	f	file:
+cache_setbufsize	cache_conn/cache_left.c	/^static void cache_setbufsize(struct socket *sock, unsigned int snd,$/;"	f	file:
+cache_show_info_t	cache_proc.c	/^typedef void (cache_show_info_t)(struct seq_file *seq, void *p);$/;"	t	file:
+cache_socket	cache_conn/cache_conn.h	/^	struct cache_socket *cache_socket;$/;"	m	struct:cache_request	typeref:struct:cache_request::cache_socket
+cache_socket	cache_conn/cache_conn.h	/^struct cache_socket{$/;"	s
+cache_socket_okay	cache_conn/cache_conn.c	/^static int cache_socket_okay(struct socket **sock)$/;"	f	file:
+cache_socket_receive	cache_conn/cache_receiver.c	/^void cache_socket_receive(struct cache_connection *connection)$/;"	f
+cache_status_seq_fops	cache_proc.c	/^struct file_operations cache_status_seq_fops = {$/;"	v	typeref:struct:file_operations
+cache_status_seq_open	cache_proc.c	/^static int cache_status_seq_open(struct inode *inode, struct file *file)$/;"	f	file:
+cache_tcp_nodelay	cache_conn/cache_conn.h	/^static inline void cache_tcp_nodelay(struct socket *sock)$/;"	f
+cache_thread	cache_conn/cache_conn.h	/^struct cache_thread{$/;"	s
+cache_thread_init	cache_conn/cache_conn.c	/^static void cache_thread_init(struct cache_thread *thi,$/;"	f	file:
+cache_thread_restart_nowait	cache_conn/cache_conn.h	/^static inline void cache_thread_restart_nowait(struct cache_thread *thi)$/;"	f
+cache_thread_setup	cache_conn/cache_conn.c	/^static int cache_thread_setup(void *arg)$/;"	f	file:
+cache_thread_start	cache_conn/cache_conn.c	/^int cache_thread_start(struct cache_thread *thi)$/;"	f
+cache_thread_state	cache_conn/cache_conn.h	/^enum cache_thread_state {$/;"	g
+cache_thread_stop	cache_conn/cache_conn.h	/^static inline void cache_thread_stop(struct cache_thread *thi)$/;"	f
+cache_thread_stop_nowait	cache_conn/cache_conn.h	/^static inline void cache_thread_stop_nowait(struct cache_thread *thi)$/;"	f
+cache_try_connect	cache_conn/cache_conn.c	/^static struct socket *cache_try_connect(struct cache_connection *connection)$/;"	f	file:
+cache_volume_info_show	cache_proc.c	/^static void cache_volume_info_show(struct seq_file *seq, void *p)$/;"	f	file:
+cache_wait_for_connect	cache_conn/cache_conn.c	/^static struct socket *cache_wait_for_connect(struct cache_connection *connection, struct accept_wait_data *ad)$/;"	f	file:
+cache_wakeup_thread_delayed	cache_wb.c	/^static void cache_wakeup_thread_delayed(struct dcache *dcache)$/;"	f	file:
+cache_wakeup_timer_fn	cache_wb.c	/^void cache_wakeup_timer_fn(unsigned long data)$/;"	f
+cache_warn	cache_dbg.h	71;"	d
+cache_wb_background_flush	cache_wb.c	/^static long cache_wb_background_flush(struct dcache *dcache)$/;"	f	file:
+cache_wb_old_data_flush	cache_wb.c	/^static long cache_wb_old_data_flush(struct dcache *dcache)$/;"	f	file:
+cache_wb_reason	cache_wb.h	/^enum cache_wb_reason {$/;"	g
+cache_work	cache_conn/cache_conn.h	/^struct cache_work {$/;"	s
+cache_work_queue	cache_conn/cache_conn.h	/^struct cache_work_queue {$/;"	s
+cache_worker	cache_conn/cache_left.c	/^int cache_worker(struct cache_thread *thi)$/;"	f
+cache_worker	cache_conn/cache_worker.c	/^int cache_worker(struct cache_thread *thi)$/;"	f
+cache_writeback	cache_wb.c	/^static long cache_writeback(struct dcache *dcache, struct cache_writeback_work *work)$/;"	f	file:
+cache_writeback_control	cache_rw.h	/^struct cache_writeback_control {$/;"	s
+cache_writeback_thread	cache_wb.c	/^int cache_writeback_thread(void *data)$/;"	f
+cache_writeback_work	cache_wb.h	/^struct cache_writeback_work {$/;"	s
+cb	cache_conn/cache_conn.h	/^	int (*cb)(struct cache_work *);$/;"	m	struct:cache_work
+check_list_status	cache_lru.c	/^void check_list_status(void)$/;"	f
+cio	cache_conn/cache_cio.c	/^	struct cio *cio;$/;"	m	struct:cio_iterator	typeref:struct:cio_iterator::cio	file:
+cio	cache_def.h	/^struct cio {$/;"	s
+cio_add_data	cache_conn/cache_cio.c	/^size_t cio_add_data(struct cio_iterator *iter, const u8 *data, size_t len)$/;"	f
+cio_add_pages	cache_conn/cache_cio.c	/^static int cio_add_pages(struct cio *cio, int count)$/;"	f	file:
+cio_alloc	cache_conn/cache_cio.c	/^struct cio *cio_alloc(int count)$/;"	f
+cio_cache	cache_conn/cache_cio.c	/^static struct kmem_cache *cio_cache;$/;"	v	typeref:struct:kmem_cache	file:
+cio_exit	cache_conn/cache_cio.c	/^void cio_exit(void)$/;"	f
+cio_free	cache_conn/cache_cio.c	/^static void cio_free(struct cio *cio)$/;"	f	file:
+cio_get	cache_conn/cache_cio.c	/^void cio_get(struct cio *cio)$/;"	f
+cio_init	cache_conn/cache_cio.c	/^int cio_init(void)$/;"	f
+cio_init_iterator	cache_conn/cache_cio.c	/^void cio_init_iterator(struct cio *cio, struct cio_iterator *iter)$/;"	f
+cio_iterator	cache_conn/cache_cio.c	/^struct cio_iterator {$/;"	s	file:
+cio_put	cache_conn/cache_cio.c	/^void cio_put(struct cio *cio)$/;"	f
+cio_set	cache_conn/cache_cio.c	/^void cio_set(struct cio *cio, u32 size, loff_t offset)$/;"	f
+cmd	cache_conn/cache_conn.h	/^	enum cache_packet cmd;$/;"	m	struct:packet_info	typeref:enum:packet_info::cache_packet
+cmdname	cache_conn/cache_receiver.c	/^static const char *cmdname(enum cache_packet cmd)$/;"	f	file:
+command	cache_conn/cache_conn.h	/^	u16	  command;$/;"	m	struct:p_header80
+conn	cache_def.h	/^	struct cache_connection * conn;$/;"	m	struct:dcache	typeref:struct:dcache::cache_connection
+conn_connect	cache_conn/cache_conn.c	/^static int conn_connect(struct cache_connection *connection)$/;"	f	file:
+conn_disconnect	cache_conn/cache_conn.c	/^static void conn_disconnect(struct cache_connection *connection)$/;"	f	file:
+conn_prepare_command	cache_conn/cache_sender.c	/^static void *conn_prepare_command(struct cache_connection *conn, struct cache_socket *sock)$/;"	f	file:
+conn_send_command	cache_conn/cache_sender.c	/^static int conn_send_command(struct cache_connection *tconn, struct cache_socket *sock,$/;"	f	file:
+connection	cache_conn/cache_conn.h	/^	struct cache_connection *connection;$/;"	m	struct:accept_wait_data	typeref:struct:accept_wait_data::cache_connection
+connection	cache_conn/cache_conn.h	/^	struct cache_connection *connection;$/;"	m	struct:cache_epoch	typeref:struct:cache_epoch::cache_connection
+connection	cache_conn/cache_conn.h	/^	struct cache_connection *connection;$/;"	m	struct:cache_request	typeref:struct:cache_request::cache_connection
+connection	cache_conn/cache_conn.h	/^	struct cache_connection *connection;$/;"	m	struct:cache_thread	typeref:struct:cache_thread::cache_connection
+connections	cache_conn/cache_conn.h	/^	struct list_head connections;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::list_head
+copy_dcache_to_pages	cache.c	/^static void copy_dcache_to_pages(struct dcache_page *dcache_page, struct page* page, $/;"	f	file:
+copy_pages_to_dcache	cache.c	/^static void copy_pages_to_dcache(struct page* page, struct dcache_page *dcache_page, $/;"	f	file:
+count	cache_def.h	/^       atomic_t count; \/* ref count *\/$/;"	m	struct:cio
+cstate	cache_conn/cache_conn.h	/^	enum cache_conn_state cstate;$/;"	m	struct:cache_connection	typeref:enum:cache_connection::cache_conn_state
+cstate_mutex	cache_conn/cache_conn.h	/^	struct mutex cstate_mutex;	\/* Protects graceful disconnects *\/$/;"	m	struct:cache_connection	typeref:struct:cache_connection::mutex
+ctr_major_cache	cache.c	/^static int ctr_major_cache;$/;"	v	file:
+current_epoch	cache_conn/cache_conn.h	/^	struct cache_epoch *current_epoch;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::cache_epoch
+data	cache_conn/cache_conn.h	/^	struct cache_socket data;		\/* data\/barrier\/cstate\/parameter packets *\/$/;"	m	struct:cache_connection	typeref:struct:cache_connection::cache_socket
+data	cache_conn/cache_conn.h	/^	void *data;$/;"	m	struct:packet_info
+data_cmd	cache_conn/cache_conn.h	/^struct data_cmd {$/;"	s
+dcache	cache_conn/cache_conn.h	/^	struct dcache *dcache;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::dcache
+dcache	cache_def.h	/^	struct dcache  *dcache;$/;"	m	struct:dcache_page	typeref:struct:dcache_page::dcache
+dcache	cache_def.h	/^struct dcache{$/;"	s
+dcache-y	Makefile	/^dcache-y	:= cache.o cache_lru.o cache_wb.o cache_rw.o cache_proc.o$/;"	m
+dcache_add_page	cache.c	/^static int dcache_add_page(struct dcache *dcache,  struct dcache_page* dcache_page)$/;"	f	file:
+dcache_check_read_blocks	cache_rw.c	/^int dcache_check_read_blocks(struct dcache_page *dcache_page,$/;"	f
+dcache_clean_page	cache.c	/^int dcache_clean_page(struct dcache * dcache, pgoff_t index)$/;"	f
+dcache_ctr_fops	cache_config.c	/^struct file_operations dcache_ctr_fops = {$/;"	v	typeref:struct:file_operations
+dcache_ctr_name	cache.c	/^static char dcache_ctr_name[] = "dcache_ctl";$/;"	v	file:
+dcache_delete_page	cache_rw.c	/^static void dcache_delete_page(struct dcache_page *dcache_page)$/;"	f	file:
+dcache_delete_radix_tree	cache_rw.c	/^void dcache_delete_radix_tree(struct dcache *dcache)$/;"	f
+dcache_do_readpage	cache_rw.c	/^static int dcache_do_readpage(struct dcache_page *dcache_page, int nr_pages,$/;"	f	file:
+dcache_do_writepage	cache_rw.c	/^static int dcache_do_writepage(struct dcache_page *dcache_page, $/;"	f	file:
+dcache_end_page_writeback	cache_rw.c	/^void dcache_end_page_writeback(struct dcache_page *dcache_page)$/;"	f
+dcache_find_get_page	cache.c	/^static struct dcache_page* dcache_find_get_page(struct dcache *dcache, pgoff_t index)$/;"	f	file:
+dcache_find_get_pages	cache_rw.c	/^static unsigned dcache_find_get_pages(struct dcache *dcache, pgoff_t start,$/;"	f	file:
+dcache_find_get_pages_tag	cache_rw.c	/^static unsigned dcache_find_get_pages_tag(struct dcache *dcache, pgoff_t *index,$/;"	f	file:
+dcache_get_free_page	cache.c	/^static struct dcache_page* dcache_get_free_page(struct dcache * dcache)$/;"	f	file:
+dcache_global_exit	cache.c	/^module_exit(dcache_global_exit);$/;"	v
+dcache_global_exit	cache.c	/^static void dcache_global_exit(void)$/;"	f	file:
+dcache_global_init	cache.c	/^module_init(dcache_global_init);$/;"	v
+dcache_global_init	cache.c	/^static int dcache_global_init(void)$/;"	f	file:
+dcache_list	cache.c	/^struct list_head dcache_list;$/;"	v	typeref:struct:list_head
+dcache_list_lock	cache.c	/^struct mutex dcache_list_lock;$/;"	v	typeref:struct:mutex
+dcache_mpage_alloc	cache_rw.c	/^static struct bio * dcache_mpage_alloc(struct block_device *bdev,$/;"	f	file:
+dcache_mpage_bio_submit	cache_rw.c	/^struct bio *dcache_mpage_bio_submit(struct bio *bio, int rw)$/;"	f
+dcache_mpage_endio	cache_rw.c	/^static void dcache_mpage_endio(struct bio *bio, int err)$/;"	f	file:
+dcache_page	cache_def.h	/^struct dcache_page{$/;"	s
+dcache_page_endio	cache_rw.c	/^static void dcache_page_endio(struct bio *bio, int error)$/;"	f	file:
+dcache_read	cache.c	/^EXPORT_SYMBOL_GPL(dcache_read);$/;"	v
+dcache_read	cache.c	/^int dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)$/;"	f
+dcache_read_get_free_page	cache.c	/^static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache)$/;"	f	file:
+dcache_read_mpage	cache_rw.c	/^int dcache_read_mpage(struct dcache *dcache, struct dcache_page **dcache_pages, int pg_cnt)$/;"	f
+dcache_read_page	cache.c	/^static void dcache_read_page(struct dcache_page * dcache_page, struct page** pages, $/;"	f	file:
+dcache_request_init	cache.c	/^static int dcache_request_init(void)$/;"	f	file:
+dcache_rw_page	cache_rw.c	/^static int dcache_rw_page(struct dcache_page *dcache_page, int rw)$/;"	f	file:
+dcache_rw_segment	cache_rw.c	/^static int dcache_rw_segment(struct dcache_page *dcache_page,$/;"	f	file:
+dcache_set_page_tag	cache_rw.c	/^void dcache_set_page_tag(struct dcache_page *dcache_page, unsigned int tag)$/;"	f
+dcache_tag_pages_for_writeback	cache_rw.c	/^static void dcache_tag_pages_for_writeback(struct dcache *dcache,$/;"	f	file:
+dcache_test_clear_page_writeback	cache_rw.c	/^static int dcache_test_clear_page_writeback(struct dcache_page *dcache_page)$/;"	f	file:
+dcache_test_set_page_writeback	cache_rw.c	/^static int dcache_test_set_page_writeback(struct dcache_page *dcache_page)$/;"	f	file:
+dcache_total_pages	cache.c	/^unsigned long dcache_total_pages;$/;"	v
+dcache_total_volume	cache.c	/^unsigned int dcache_total_volume;$/;"	v
+dcache_wb_forker	cache_wb.c	/^struct task_struct *dcache_wb_forker;$/;"	v	typeref:struct:task_struct
+dcache_write	cache.c	/^EXPORT_SYMBOL_GPL(dcache_write);$/;"	v
+dcache_write	cache.c	/^int dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)$/;"	f
+dcache_write_get_free_page	cache.c	/^static struct dcache_page* dcache_write_get_free_page(struct dcache * dcache)$/;"	f	file:
+dcache_write_page	cache.c	/^static int  dcache_write_page(void *dcachep, pgoff_t page_index, struct page* page, $/;"	f	file:
+dcache_write_page_blocks	cache_rw.c	/^int dcache_write_page_blocks(struct dcache_page *dcache_page)$/;"	f
+dcache_writeback_mpage	cache_rw.c	/^static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_control *wbc,$/;"	f	file:
+decode_header	cache_conn/cache_receiver.c	/^static int decode_header(struct cache_connection *conn, void *header, struct packet_info *pi)$/;"	f	file:
+decrease_dirty_ratio	cache.c	/^static int decrease_dirty_ratio(struct dcache * dcache)$/;"	f	file:
+del_page_from_radix	cache.c	/^static void del_page_from_radix(struct dcache_page *dcache_page)$/;"	f	file:
+del_volume_dcache	cache.c	/^EXPORT_SYMBOL_GPL(del_volume_dcache);$/;"	v
+del_volume_dcache	cache.c	/^void del_volume_dcache(void *volume_dcachep)$/;"	f
+dequeue_work_batch	cache_conn/cache_worker.c	/^bool dequeue_work_batch(struct cache_work_queue *queue, struct list_head *work_list)$/;"	f
+dequeue_work_item	cache_conn/cache_worker.c	/^bool dequeue_work_item(struct cache_work_queue *queue, struct list_head *work_list)$/;"	f
+device_id	cache_def.h	/^	dev_t	device_id;$/;"	m	struct:dcache_page
+dirtied_when	cache_def.h	/^	unsigned long dirtied_when;	\/* jiffies of first dirtying *\/$/;"	m	struct:dcache_page
+dirty_bitmap	cache_def.h	/^	unsigned char dirty_bitmap;$/;"	m	struct:dcache_page
+dirty_pages	cache_def.h	/^	atomic_t dirty_pages;	\/* should be atomic *\/$/;"	m	struct:dcache
+done	cache_conn/cache_conn.h	/^	struct completion done;$/;"	m	struct:cache_request	typeref:struct:cache_request::completion
+done	cache_wb.h	/^	struct completion *done;	\/* set if the caller waits *\/$/;"	m	struct:cache_writeback_work	typeref:struct:cache_writeback_work::completion
+door_bell	cache_conn/cache_conn.h	/^	struct completion door_bell;$/;"	m	struct:accept_wait_data	typeref:struct:accept_wait_data::completion
+dp_flags	cache_conn/cache_conn.h	/^	u32	    dp_flags;$/;"	m	struct:p_data
+dprintk	cache_dbg.h	55;"	d
+dprintk	cache_dbg.h	63;"	d
+dprintk_detail	cache_dbg.h	47;"	d
+dprintk_detail	cache_dbg.h	62;"	d
+echo_host	cache_config.c	/^char echo_host[PATH_LEN]="10.17.11.1";$/;"	v
+echo_peer	cache_config.c	/^char echo_peer[PATH_LEN]="10.17.11.2";$/;"	v
+epoch_lock	cache_conn/cache_conn.h	/^	spinlock_t epoch_lock;$/;"	m	struct:cache_connection
+epoch_size	cache_conn/cache_conn.h	/^	atomic_t epoch_size; \/* increased on every request added. *\/$/;"	m	struct:cache_epoch
+epochs	cache_conn/cache_conn.h	/^	unsigned int epochs;$/;"	m	struct:cache_connection
+eprintk	cache_dbg.h	40;"	d
+eprintk_detail	cache_dbg.h	32;"	d
+error	cache_rw.c	/^	atomic_t error;$/;"	m	struct:tio_work	file:
+expect_payload	cache_conn/cache_conn.h	/^	int expect_payload;$/;"	m	struct:data_cmd
+flag	cache_def.h	/^	unsigned long flag;$/;"	m	struct:dcache_page
+flags	cache_conn/cache_conn.h	/^	unsigned long flags;$/;"	m	struct:cache_connection
+flags	cache_conn/cache_conn.h	/^	unsigned long flags;$/;"	m	struct:cache_epoch
+fn	cache_conn/cache_conn.h	/^	int (*fn)(struct cache_connection *, struct packet_info *);$/;"	m	struct:data_cmd
+fops	cache_proc.c	/^	struct file_operations *fops;$/;"	m	struct:proc_entries	typeref:struct:proc_entries::file_operations	file:
+for_background	cache_rw.h	/^	unsigned for_background:1;	\/* A background writeback *\/$/;"	m	struct:cache_writeback_control
+for_background	cache_wb.h	/^	unsigned int for_background:1;$/;"	m	struct:cache_writeback_work
+for_kupdate	cache_rw.h	/^	unsigned for_kupdate:1;		\/* A kupdate writeback *\/$/;"	m	struct:cache_writeback_control
+for_kupdate	cache_wb.h	/^	unsigned int for_kupdate:1;$/;"	m	struct:cache_writeback_work
+function	cache_conn/cache_conn.h	/^	int (*function) (struct cache_thread *);$/;"	m	struct:cache_thread
+get_bitmap	cache.c	/^static unsigned char get_bitmap(sector_t lba_off, u32 num)$/;"	f	file:
+get_module_info	cache_config.c	/^static int get_module_info(unsigned long ptr)$/;"	f	file:
+get_ready_request	cache_conn/cache_request.c	/^struct cache_request * get_ready_request(struct cache_connection *conn, u32 seq_num)$/;"	f
+get_t_state	cache_conn/cache_conn.h	/^static inline enum cache_thread_state get_t_state(struct cache_thread *thi)$/;"	f
+got_block_ack	cache_conn/cache_receiver.c	/^static int got_block_ack(struct cache_connection *connection, struct packet_info *pi)$/;"	f	file:
+got_wrote_ack	cache_conn/cache_receiver.c	/^static int got_wrote_ack(struct cache_connection *connection, struct packet_info *pi)$/;"	f	file:
+hb_change_state	cache_config.c	/^void hb_change_state(void)$/;"	f
+hb_report_peer_state	cache_config.c	/^static int hb_report_peer_state(unsigned long ptr)$/;"	f	file:
+hb_restore_owner	cache_config.c	/^void hb_restore_owner(void)$/;"	f
+id	cache_def.h	/^	u32 id;$/;"	m	struct:dcache
+inactive	cache_def.h	/^	inactive = 0, \/* active list*\/$/;"	e	enum:page_site
+inactive_add_page	cache_lru.c	/^void inactive_add_page(struct dcache_page *dcache_page)$/;"	f
+inactive_is_low	cache_lru.c	/^static int inactive_is_low(int *len)$/;"	f	file:
+inactive_length	cache_lru.c	/^long inactive_length(void)$/;"	f
+inactive_list	cache_lru.c	/^LIST_HEAD(inactive_list);$/;"	v
+inactive_list_length	cache_lru.c	/^atomic_t inactive_list_length;$/;"	v
+inactive_lock	cache_lru.c	/^spinlock_t inactive_lock;$/;"	v
+inactive_writeback_add_list	cache_lru.c	/^void inactive_writeback_add_list(struct list_head *list)$/;"	f
+index	cache_def.h	/^	pgoff_t	index;$/;"	m	struct:dcache_page
+inet_addr	cache_conn/cache_conn.c	/^static unsigned int inet_addr(const char* ip)$/;"	f	file:
+inet_addr	cache_def.h	/^	char inet_addr[ADDR_LEN];$/;"	m	struct:dcache
+inet_ntoa	cache_conn/cache_conn.c	/^static char *inet_ntoa(struct in_addr *in)$/;"	f	file:
+inet_peer_addr	cache_def.h	/^	char inet_peer_addr[ADDR_LEN];$/;"	m	struct:dcache
+init_volume_dcache	cache.c	/^EXPORT_SYMBOL_GPL(init_volume_dcache);$/;"	v
+init_volume_dcache	cache.c	/^void* init_volume_dcache(const char *path, int owner, int port)$/;"	f
+ioctl	cache_config.c	/^static long ioctl(struct file *file, unsigned int cmd, unsigned long arg)$/;"	f	file:
+ip_set	cache_config.c	/^static int ip_set(unsigned long ptr)$/;"	f	file:
+iscsi_wb_sync_modes	cache_rw.h	/^enum iscsi_wb_sync_modes {$/;"	g
+ko_count	cache_conn/cache_conn.h	/^	int ko_count;$/;"	m	struct:cache_connection
+kref	cache_conn/cache_conn.h	/^	struct kref kref;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::kref
+last_active	cache_def.h	/^	unsigned long last_active;	\/* last time wb thread was active *\/$/;"	m	struct:dcache
+last_old_flush	cache_def.h	/^	unsigned long last_old_flush;	\/* last old data flush *\/$/;"	m	struct:dcache
+last_page_in_bio	cache_rw.c	/^	pgoff_t last_page_in_bio;$/;"	m	struct:cache_mpage_data	file:
+last_received	cache_conn/cache_conn.h	/^	unsigned long last_received;$/;"	m	struct:cache_connection
+length	cache_conn/cache_conn.h	/^	u32	  length;	\/* bytes of data after this header *\/$/;"	m	struct:p_header80
+list	cache_conn/cache_conn.h	/^	struct list_head list;$/;"	m	struct:cache_epoch	typeref:struct:cache_epoch::list_head
+list	cache_conn/cache_conn.h	/^	struct list_head list;$/;"	m	struct:cache_request	typeref:struct:cache_request::list_head
+list	cache_conn/cache_conn.h	/^	struct list_head list;$/;"	m	struct:cache_work	typeref:struct:cache_work::list_head
+list	cache_def.h	/^	struct list_head list;		\/* list all of volume in cache *\/$/;"	m	struct:dcache	typeref:struct:dcache::list_head
+list	cache_def.h	/^	struct list_head list;$/;"	m	struct:dcache_page	typeref:struct:dcache_page::list_head
+list	cache_wb.h	/^	struct list_head list;		\/* pending work list *\/$/;"	m	struct:cache_writeback_work	typeref:struct:cache_writeback_work::list_head
+list_connect	cache_lru.c	/^static void list_connect(struct list_head *dst,struct list_head *src)$/;"	f	file:
+list_length	cache_lru.c	/^static long list_length(struct list_head *lru, spinlock_t *lock)$/;"	f	file:
+lru_add_list	cache_lru.c	/^static void lru_add_list(struct list_head *list,struct list_head *lru,spinlock_t * lock)$/;"	f	file:
+lru_add_page	cache_lru.c	/^void lru_add_page(struct dcache_page *dcache_page)$/;"	f
+lru_alloc_page	cache_lru.c	/^struct dcache_page* lru_alloc_page(void)$/;"	f
+lru_del_page	cache_lru.c	/^void lru_del_page(struct dcache_page * dcache_page)$/;"	f
+lru_list_init	cache_lru.c	/^int lru_list_init(void)$/;"	f
+lru_list_shrink	cache_lru.c	/^static int lru_list_shrink(void * args)$/;"	f	file:
+lru_mark_page_accessed	cache_lru.c	/^void lru_mark_page_accessed(struct dcache_page *dcache_page,int move)$/;"	f
+lru_page_add	cache_lru.c	/^static void lru_page_add(struct list_head *list,struct list_head *lru, spinlock_t * lock)$/;"	f	file:
+lru_page_add_tail	cache_lru.c	/^static void lru_page_add_tail(struct list_head *list,struct list_head *lru,spinlock_t * lock)$/;"	f	file:
+lru_read_hit_handle	cache_lru.c	/^void lru_read_hit_handle(struct dcache_page *dcache_page)$/;"	f
+lru_read_miss_handle	cache_lru.c	/^void lru_read_miss_handle(struct dcache_page *dcache_page)$/;"	f
+lru_set_page_back	cache_lru.c	/^void lru_set_page_back(struct dcache_page *dcache_page)$/;"	f
+lru_shrink_thread	cache_lru.c	/^struct task_struct *lru_shrink_thread;$/;"	v	typeref:struct:task_struct
+lru_shrink_thread_exit	cache_lru.c	/^void lru_shrink_thread_exit(void)$/;"	f
+lru_shrink_thread_init	cache_lru.c	/^int lru_shrink_thread_init(void)$/;"	f
+lru_write_hit_handle	cache_lru.c	/^void lru_write_hit_handle(struct dcache_page *dcache_page)$/;"	f
+lru_write_miss_handle	cache_lru.c	/^void lru_write_miss_handle(struct dcache_page *dcache_page)$/;"	f
+lru_writeback_add_list	cache_lru.c	/^void lru_writeback_add_list(struct list_head *list,struct list_head *lru,$/;"	f
+lun_update	cache_config.c	/^static int lun_update(unsigned long ptr)$/;"	f	file:
+machine_set	cache_config.c	/^static int machine_set(unsigned long ptr)$/;"	f	file:
+machine_type	cache_config.c	/^int machine_type;$/;"	v
+magic	cache_conn/cache_conn.h	/^	u16	  magic;$/;"	m	struct:p_header80
+meta	cache_conn/cache_conn.h	/^	struct cache_socket meta;	\/* ping\/ack (metadata) packets *\/$/;"	m	struct:cache_connection	typeref:struct:cache_connection::cache_socket
+mode	cache_rw.h	/^	enum iscsi_wb_sync_modes mode;$/;"	m	struct:cache_writeback_control	typeref:enum:cache_writeback_control::iscsi_wb_sync_modes
+move_active_to_inactive	cache_lru.c	/^static void move_active_to_inactive(int len)$/;"	f	file:
+move_page_to_active	cache_lru.c	/^void move_page_to_active(struct dcache_page * dcache_page)$/;"	f
+mutex	cache_conn/cache_conn.h	/^	struct mutex mutex;$/;"	m	struct:cache_socket	typeref:struct:cache_socket::mutex
+my_addr	cache_conn/cache_conn.h	/^	struct sockaddr_storage my_addr;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::sockaddr_storage
+my_addr_len	cache_conn/cache_conn.h	/^	int my_addr_len;$/;"	m	struct:cache_connection
+name	cache_conn/cache_conn.h	/^	const char *name;	$/;"	m	struct:cache_thread
+name	cache_proc.c	/^	const char *name;$/;"	m	struct:proc_entries	file:
+net_conf	cache_conn/cache_conn.h	/^	struct net_conf *net_conf;	\/* content protected by rcu *\/$/;"	m	struct:cache_connection	typeref:struct:cache_connection::net_conf
+nr_cmnds	cache_conn/cache_conn.h	/^	atomic_t nr_cmnds;$/;"	m	struct:cache_connection
+nr_pages	cache_wb.h	/^	long nr_pages;$/;"	m	struct:cache_writeback_work
+nr_to_write	cache_rw.h	/^	long nr_to_write;		\/* Write this many pages, and decrement$/;"	m	struct:cache_writeback_control
+offset	cache_def.h	/^       loff_t offset; \/* byte offset on target *\/$/;"	m	struct:cio
+older_than_this	cache_wb.h	/^	unsigned long *older_than_this;   \/* may be used in the future *\/$/;"	m	struct:cache_writeback_work
+origin_owner	cache_def.h	/^	bool origin_owner;$/;"	m	struct:dcache
+original_sk_state_change	cache_conn/cache_conn.h	/^	void (*original_sk_state_change)(struct sock *sk);$/;"	m	struct:accept_wait_data
+over_bground_thresh	cache_wb.c	/^bool over_bground_thresh(struct dcache *dcache)$/;"	f
+over_high_watermark	cache.c	/^static int over_high_watermark(struct dcache * dcache)$/;"	f	file:
+owner	cache_config.c	/^bool owner = true;$/;"	v
+owner	cache_def.h	/^	bool owner;$/;"	m	struct:dcache
+p_block_ack	cache_conn/cache_conn.h	/^struct p_block_ack {$/;"	s
+p_block_wrote	cache_conn/cache_conn.h	/^struct p_block_wrote {$/;"	s
+p_data	cache_conn/cache_conn.h	/^struct p_data {$/;"	s
+p_header80	cache_conn/cache_conn.h	/^struct p_header80 {$/;"	s
+p_wrote_ack	cache_conn/cache_conn.h	/^struct p_wrote_ack {$/;"	s
+packet_info	cache_conn/cache_conn.h	/^struct packet_info {$/;"	s
+packet_seq	cache_conn/cache_conn.h	/^	atomic_t packet_seq;$/;"	m	struct:cache_connection
+pad	cache_conn/cache_conn.h	/^	u32	    pad;$/;"	m	struct:p_block_wrote
+pad	cache_conn/cache_conn.h	/^	u32      pad;$/;"	m	struct:p_wrote_ack
+page	cache_def.h	/^	struct page *page;$/;"	m	struct:dcache_page	typeref:struct:dcache_page::page
+page_site	cache_def.h	/^enum page_site {$/;"	g
+page_tree	cache_def.h	/^	struct radix_tree_root page_tree;	\/* radix tree of all cache pages *\/$/;"	m	struct:dcache	typeref:struct:dcache::radix_tree_root
+page_waitqueue	cache_rw.c	/^static wait_queue_head_t *page_waitqueue(struct page *page)$/;"	f	file:
+path	cache_def.h	/^	char path[PATH_LEN];$/;"	m	struct:dcache
+peer_addr	cache_conn/cache_conn.h	/^	struct sockaddr_storage peer_addr;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::sockaddr_storage
+peer_addr_len	cache_conn/cache_conn.h	/^	int peer_addr_len;$/;"	m	struct:cache_connection
+peer_is_good	cache.c	/^bool peer_is_good = false;$/;"	v
+pg_cnt	cache_def.h	/^       u32 pg_cnt; \/* total page count *\/$/;"	m	struct:cio
+pg_idx	cache_conn/cache_cio.c	/^	u32 pg_idx;$/;"	m	struct:cio_iterator	file:
+pg_off	cache_conn/cache_cio.c	/^	u32 pg_off;$/;"	m	struct:cio_iterator	file:
+ping_wait	cache_conn/cache_conn.h	/^	wait_queue_head_t ping_wait;	\/* Woken upon reception of a ping, and a state change *\/$/;"	m	struct:cache_connection
+pkt_size	cache_conn/cache_conn.h	/^	size_t pkt_size;$/;"	m	struct:data_cmd
+port	cache_def.h	/^	int port;$/;"	m	struct:dcache
+prepare_header	cache_conn/cache_sender.c	/^static unsigned int prepare_header(struct cache_connection *conn, $/;"	f	file:
+prepare_header80	cache_conn/cache_sender.c	/^static unsigned int prepare_header80(struct p_header80 *h, enum cache_packet cmd, int size)$/;"	f	file:
+prepare_listen_socket	cache_conn/cache_conn.c	/^static int prepare_listen_socket(struct cache_connection *connection, struct accept_wait_data *ad)$/;"	f	file:
+proc_cache_dir	cache_proc.c	/^static struct proc_dir_entry *proc_cache_dir;$/;"	v	typeref:struct:proc_dir_entry	file:
+proc_entries	cache_proc.c	/^struct proc_entries {$/;"	s	file:
+pvec	cache_def.h	/^       struct page **pvec; \/* array of pages holding data *\/$/;"	m	struct:cio	typeref:struct:cio::page
+q	cache_conn/cache_conn.h	/^	struct list_head q;$/;"	m	struct:cache_work_queue	typeref:struct:cache_work_queue::list_head
+q_lock	cache_conn/cache_conn.h	/^	spinlock_t q_lock;  \/* to protect the list. *\/$/;"	m	struct:cache_work_queue
+q_wait	cache_conn/cache_conn.h	/^	wait_queue_head_t q_wait;$/;"	m	struct:cache_work_queue
+radix	cache_def.h	/^	radix,     \/*radix tree*\/$/;"	e	enum:page_site
+range_cyclic	cache_rw.h	/^	unsigned range_cyclic:1;	\/* range_start is cyclic *\/$/;"	m	struct:cache_writeback_control
+range_cyclic	cache_wb.h	/^	unsigned int range_cyclic:1;$/;"	m	struct:cache_writeback_work
+range_end	cache_rw.h	/^	loff_t range_end;$/;"	m	struct:cache_writeback_control
+range_start	cache_rw.h	/^	loff_t range_start;$/;"	m	struct:cache_writeback_control
+rbuf	cache_conn/cache_conn.h	/^	void *rbuf;$/;"	m	struct:cache_socket
+read_in_block	cache_conn/cache_receiver.c	/^static struct cio* read_in_block(struct cache_connection *connection, sector_t sector,$/;"	f	file:
+reason	cache_wb.h	/^	enum cache_wb_reason reason;		\/* why was writeback initiated? *\/$/;"	m	struct:cache_writeback_work	typeref:enum:cache_writeback_work::cache_wb_reason
+receive_data	cache_conn/cache_receiver.c	/^static int receive_data(struct cache_connection * connection, struct packet_info * pi)$/;"	f	file:
+receive_first_packet	cache_conn/cache_receiver.c	/^int receive_first_packet(struct cache_connection *connection, struct socket *sock)$/;"	f
+receive_wrote	cache_conn/cache_receiver.c	/^static int receive_wrote(struct cache_connection *connection, struct packet_info *pi)$/;"	f	file:
+receiver	cache_conn/cache_conn.h	/^	struct cache_thread receiver; \/* used for receive data*\/$/;"	m	struct:cache_connection	typeref:struct:cache_connection::cache_thread
+release	cache_config.c	/^static int release(struct inode *i __attribute__((unused)),$/;"	f	file:
+request_from	cache_def.h	/^enum request_from {$/;"	g
+request_list	cache_conn/cache_conn.h	/^	struct list_head request_list;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::list_head
+request_lock	cache_conn/cache_conn.h	/^	spinlock_t request_lock;$/;"	m	struct:cache_connection
+s_listen	cache_conn/cache_conn.h	/^	struct socket *s_listen;$/;"	m	struct:accept_wait_data	typeref:struct:accept_wait_data::socket
+sbuf	cache_conn/cache_conn.h	/^	void *sbuf;$/;"	m	struct:cache_socket
+sector	cache_conn/cache_conn.h	/^	u64	    sector;    \/* 64 bits sector number *\/$/;"	m	struct:p_data
+sector	cache_conn/cache_conn.h	/^	u64	    sector;$/;"	m	struct:p_block_ack
+send_first_packet	cache_conn/cache_sender.c	/^int send_first_packet(struct cache_connection *connection, struct cache_socket *sock,$/;"	f
+sender_work	cache_conn/cache_conn.h	/^	struct cache_work_queue sender_work;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::cache_work_queue
+seq_num	cache_conn/cache_conn.h	/^	u32	    seq_num;$/;"	m	struct:cache_request
+seq_num	cache_conn/cache_conn.h	/^	u32	    seq_num;$/;"	m	struct:p_block_ack
+seq_num	cache_conn/cache_conn.h	/^	u32	    seq_num;$/;"	m	struct:p_block_wrote
+seq_num	cache_conn/cache_conn.h	/^	u32	    seq_num;$/;"	m	struct:p_data
+seq_num	cache_conn/cache_conn.h	/^	u32	    seq_num;$/;"	m	struct:p_wrote_ack
+shrink_active_list	cache_lru.c	/^static void shrink_active_list(void)$/;"	f	file:
+shrink_inactive_list	cache_lru.c	/^static void shrink_inactive_list(void)$/;"	f	file:
+site	cache_def.h	/^	enum page_site  site;$/;"	m	struct:dcache_page	typeref:enum:dcache_page::page_site
+size	cache_conn/cache_cio.c	/^	u32 size;$/;"	m	struct:cio_iterator	file:
+size	cache_conn/cache_conn.h	/^	int size;$/;"	m	struct:packet_info
+size	cache_def.h	/^       u32 size; \/* total io bytes *\/$/;"	m	struct:cio
+sock_close	cache_conn/cache_conn.c	/^static int sock_close(struct socket *sk)$/;"	f	file:
+socket	cache_conn/cache_conn.h	/^	struct socket    *socket;$/;"	m	struct:cache_socket	typeref:struct:cache_socket::socket
+start	cache_conn/cache_conn.h	/^	struct completion start;$/;"	m	struct:cache_thread	typeref:struct:cache_thread::completion
+state	cache_def.h	/^	unsigned long state;	\/* Always use atomic bitops on this *\/$/;"	m	struct:dcache
+stop	cache_conn/cache_conn.h	/^	struct completion stop;$/;"	m	struct:cache_thread	typeref:struct:cache_thread::completion
+sync_mode	cache_wb.h	/^	enum iscsi_wb_sync_modes sync_mode;$/;"	m	struct:cache_writeback_work	typeref:enum:cache_writeback_work::iscsi_wb_sync_modes
+t_lock	cache_conn/cache_conn.h	/^	spinlock_t t_lock;$/;"	m	struct:cache_thread
+t_state	cache_conn/cache_conn.h	/^	enum cache_thread_state t_state;$/;"	m	struct:cache_thread	typeref:enum:cache_thread::cache_thread_state
+task	cache_conn/cache_conn.h	/^	struct task_struct *task;$/;"	m	struct:cache_thread	typeref:struct:cache_thread::task_struct
+task	cache_def.h	/^	struct task_struct *task;	\/* writeback thread *\/$/;"	m	struct:dcache	typeref:struct:dcache::task_struct
+temp	cache_def.h	/^	temp,     \/*temp list*\/$/;"	e	enum:page_site
+tio_complete	cache_rw.c	/^	struct completion tio_complete;$/;"	m	struct:tio_work	typeref:struct:tio_work::completion	file:
+tio_work	cache_rw.c	/^struct tio_work {$/;"	s	file:
+total_pages	cache_def.h	/^	atomic_t total_pages;$/;"	m	struct:dcache
+tree_lock	cache_def.h	/^	spinlock_t	 tree_lock;	 \/* and lock protecting it *\/$/;"	m	struct:dcache
+unregister_state_change	cache_conn/cache_left.c	/^static void unregister_state_change(struct sock *sk, struct accept_wait_data *ad)$/;"	f	file:
+valid_bitmap	cache_def.h	/^	unsigned char valid_bitmap;$/;"	m	struct:dcache_page
+vnr	cache_conn/cache_conn.h	/^	int vnr;$/;"	m	struct:packet_info
+wait_for_work	cache_conn/cache_worker.c	/^void wait_for_work(struct cache_connection *connection, struct list_head *work_list)$/;"	f
+wake_up_page	cache_rw.c	/^static inline void wake_up_page(struct page *page, int bit)$/;"	f	file:
+wakeup_cache_flusher	cache_wb.c	/^void wakeup_cache_flusher(struct dcache *dcache)$/;"	f
+wakeup_timer	cache_def.h	/^	struct timer_list wakeup_timer; \/* used for delayed thread wakeup *\/$/;"	m	struct:dcache	typeref:struct:dcache::timer_list
+wb_completion	cache_def.h	/^	struct completion wb_completion; \/* wait for writeback thread exit *\/$/;"	m	struct:dcache	typeref:struct:dcache::completion
+wb_thread_exit	cache_wb.c	/^void wb_thread_exit(void)$/;"	f
+wb_thread_init	cache_wb.c	/^int wb_thread_init(void)$/;"	f
+we_should_drop_the_connection	cache_conn/cache_sender.c	/^static int we_should_drop_the_connection(struct cache_connection *connection, struct socket *sock)$/;"	f	file:
+worker	cache_conn/cache_conn.h	/^	struct cache_thread worker;$/;"	m	struct:cache_connection	typeref:struct:cache_connection::cache_thread
+writeback_all	cache_wb.c	/^static int writeback_all(void)$/;"	f	file:
+writeback_index	cache_def.h	/^	pgoff_t writeback_index;		\/* for cyclic writeback *\/$/;"	m	struct:dcache
+writeback_single	cache_rw.c	/^long writeback_single(struct dcache *dcache, unsigned int mode, $/;"	f

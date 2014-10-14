@@ -74,10 +74,9 @@ static int cache_recv(struct cache_socket *cache_socket, void *buf, size_t size)
 	rv = cache_recv_short(cache_socket->socket, buf, size, 0);
 
 	if (rv < 0) {
+		cache_err( "sock_recvmsg returned %d\n", rv);
 		if (rv == -ECONNRESET)
 			cache_info("sock was reset by peer\n");
-		else if (rv != -ERESTARTSYS && rv != -EAGAIN)
-			cache_err( "sock_recvmsg returned %d\n", rv);
 	} else if (rv == 0) {
 		cache_info("sock was shut down by peer\n");
 		hb_change_state();
@@ -330,7 +329,7 @@ void cache_socket_receive(struct cache_connection *connection)
 
 		err = cache_recv_header(connection, &connection->data, &pi);
 		if(err < 0){
-			if (likely(err == -EAGAIN))
+			if (err == -EAGAIN && peer_is_good)
 				continue;
 			goto err_out;
 		}

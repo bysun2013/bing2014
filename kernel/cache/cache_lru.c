@@ -444,7 +444,7 @@ static int lru_list_shrink(void * args)
 					atomic_read(&inactive_list_length),atomic_read(&active_list_length));
 		shrink_inactive_list();
 		shrink_active_list();
-		cache_dbg("shrink list finish,inactive is %d,active is %d\n", \
+		cache_ignore("shrink list finish,inactive is %d,active is %d\n", \
 					atomic_read(&inactive_list_length),atomic_read(&active_list_length));
 	}
 	return 0;
