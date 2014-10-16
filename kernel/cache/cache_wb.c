@@ -264,6 +264,17 @@ static int cache_forker_thread(void * args)
 		set_current_state(TASK_INTERRUPTIBLE);
 
 		list_for_each_entry(dcache, &dcache_list, list) {
+			
+			if(!dcache->owner){
+				if(!dcache->task)
+					continue;
+				else{
+					task = dcache->task;
+					dcache->task = NULL;
+					action = KILL_THREAD;
+					break;
+				}
+			}
 
 			have_dirty_io = over_bground_thresh(dcache);
 
@@ -306,7 +317,7 @@ static int cache_forker_thread(void * args)
 			break;
 
 		case NO_ACTION:
-			if(have_dirty_io)
+			if(have_dirty_io)
 				schedule_timeout(msecs_to_jiffies(cache_dirty_writeback_interval * 10));
 			else
 				schedule_timeout(cache_longest_inactive());

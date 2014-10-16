@@ -235,6 +235,7 @@ static int receive_wrote(struct cache_connection *connection, struct packet_info
 	err = cache_recv_all_warn(&connection->meta, data, size);
 	if (err) {
 		cache_err("Error occurs when receive wrote data...\n");
+		kfree(data);
 		return err;
 	}
 	
@@ -245,6 +246,7 @@ static int receive_wrote(struct cache_connection *connection, struct packet_info
 			break;
 		if(index < 0){
 			cache_err("Error occurs, index is %ld.\n", index);
+			kfree(data);
 			return -EINVAL;
 		}
 		dcache_clean_page(dcache, index);
@@ -331,27 +333,27 @@ void cache_socket_receive(struct cache_connection *connection)
 		if(err < 0){
 			if (err == -EAGAIN && peer_is_good)
 				continue;
-			goto err_out;
+			return;
 		}
 		WARN_ON(pi.cmd != P_DATA);
 		cmd = &cache_cmd_handler[pi.cmd];
 		if (unlikely(pi.cmd >= ARRAY_SIZE(cache_cmd_handler) || !cmd->fn)) {
 			cache_err("Unexpected data packet %s (0x%04x)\n",
 				 cmdname(pi.cmd), pi.cmd);
-			goto err_out;
+			return;
 		}
 
 		shs = cmd->pkt_size;
 		if (pi.size > shs && !cmd->expect_payload) {
 			cache_err("No payload expected %s l:%d\n",
 				 cmdname(pi.cmd), pi.size);
-			goto err_out;
+			return;
 		}
 		cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
 		if (shs) {
 			err = cache_recv_all_warn(&connection->data, pi.data, shs);
 			if (err)
-				goto err_out;
+				return;
 			pi.size -= shs;
 		}
 
@@ -359,11 +361,10 @@ void cache_socket_receive(struct cache_connection *connection)
 		if (err) {
 			cache_err("error receiving %s, e: %d l: %d!\n",
 				 cmdname(pi.cmd), err, pi.size);
-			goto err_out;
+			return;
 		}
 	}
-	
-err_out:
+
 	return;
 }
 
@@ -381,7 +382,7 @@ int cache_msocket_receive(struct cache_connection *connection)
 
 		err = cache_recv_header(connection, &connection->meta, &pi);
 		if(err < 0){
-			if (likely(err == -EAGAIN))
+			if (err == -EAGAIN && peer_is_good)
 				continue;
 			goto err_out;
 		}

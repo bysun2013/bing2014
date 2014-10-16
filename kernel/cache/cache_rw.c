@@ -785,8 +785,6 @@ static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_
 	int cycled;
 	bool is_seq;
 
-	BUG_ON(!dcache->owner);
-
 	if(!dcache)
 		return 0;
 	
@@ -950,7 +948,7 @@ continue_unlock:
 		
 sync_again:
 		/* submit page index of written pages to peer */
-		if(dcache->owner && wrote_index && peer_is_good) {
+		if(peer_is_good && dcache->owner && wrote_index) {
 			int m;
 			for(m = wrote_index; m < PVEC_NORMAL_SIZE; m++)
 				wb_index[m]= -1;
@@ -960,7 +958,7 @@ sync_again:
 				goto sync_again;
 			
 			cache_dbg("wait for wrote ack.\n");
-			if(wait_for_completion_timeout(&req->done, HZ*60) == 0 && peer_is_good) {
+			if(wait_for_completion_timeout(&req->done, HZ*15) == 0) {
 				cache_warn("timeout when wait for wrote ack.\n");
 				cache_request_dequeue(req);
 				goto sync_again;

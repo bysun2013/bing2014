@@ -583,12 +583,14 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 	sector_t lba, alba, lba_off;
 	pgoff_t page_index;
 
-	cache_ignore("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
+	cache_dbg("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
 	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		err = cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>SECTOR_SHIFT, &req);
-		if(err)
+		if(err){
+			cache_dbg("Send data block fails.\n");
 			return err;
+		}
 	}
 	
 	while (size && tio_index < pg_cnt) {
@@ -622,10 +624,10 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 			
 			tio_index++;
 	}
-	
+
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		cache_dbg("wait for data ack.\n");
-		if(wait_for_completion_timeout(&req->done, HZ*60) == 0) {
+		if(wait_for_completion_timeout(&req->done, HZ*15) == 0) {
 			cache_warn("timeout when wait for data ack.\n");
 			cache_request_dequeue(req);
 		}else

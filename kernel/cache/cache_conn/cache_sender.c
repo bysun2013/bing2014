@@ -72,7 +72,7 @@ static int we_should_drop_the_connection(struct cache_connection *connection, st
 {
 	int drop_it;
 
-	drop_it =  !peer_is_good;
+	drop_it =  (!peer_is_good || !connection->ko_count); 
 
 	if (drop_it)
 		return true;
@@ -138,11 +138,9 @@ static int cache_send(struct cache_connection *connection, struct socket *sock,
 	} while (sent < size);
 
 	if (rv <= 0) {
-		if (rv != -EAGAIN) {
-			cache_err("%s_sendmsg returned %d\n",
-				 sock == connection->meta.socket ? "msock" : "sock",
-				 rv);
-		}
+		cache_err("%s_sendmsg returned %d\n",
+			 sock == connection->meta.socket ? "msock" : "sock", rv);
+		return rv;
 	}
 
 	return sent;
@@ -244,7 +242,7 @@ static int _cache_send_page(struct cache_connection*conn, struct page *page,
 				err = sent;
 			break;
 		}
-		len    -= sent;
+		len -= sent;
 		offset += sent;
 	} while (len > 0);
 	set_fs(oldfs);
@@ -268,7 +266,7 @@ static int _cache_send_zc_pages(struct cache_connection *conn, struct page **pag
 					 i == count - 1 ? 0 : MSG_MORE);
 		if (err)
 			return err;
-		size-=write;
+		size -= write;
 	}
 	return 0;
 }
@@ -306,11 +304,14 @@ int cache_send_dblock(struct cache_connection *connection, struct page **pages,
 	
 	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */
 
+	if(err)
+		cache_request_dequeue(*req);
+
 	return err;
 }
 
 int cache_send_wrote(struct cache_connection *connection, 
-	pgoff_t *pages_index, int count, struct cache_request ** req)
+	pgoff_t *pages_index, int count, struct cache_request **req)
 {
 	struct cache_socket *sock;
 	struct p_block_wrote *p;
@@ -333,13 +334,18 @@ int cache_send_wrote(struct cache_connection *connection,
 
 	cache_dbg("begin to send wrote data.\n");
 	err = __send_command(connection, sock, P_DATA_WRITTEN, sizeof(*p), NULL, size);
-	if (!err) {
-		err = cache_send(connection, socket, pages_index, size, 0);
-	}
-	cache_dbg("finish sending wrote data.\n");
-	
+	if (!err)
+		err = cache_send_all(connection, socket, pages_index, size, 0);
+
 	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */	
 
+	if(err){
+		cache_dbg("send wrote data fail.\n");
+		cache_request_dequeue(*req);
+		return err;
+	}
+
+	cache_dbg("finish sending wrote data.\n");
 	return err;
 }
 

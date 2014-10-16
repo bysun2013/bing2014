@@ -172,9 +172,14 @@ void hb_restore_owner(void)
 	/* FIXME: the sequence between peer_is_good and writeback, yes? */
 	mutex_lock(&dcache_list_lock);
 	list_for_each_entry(dcache, &dcache_list, list) {
-			if(dcache->owner == true && dcache->origin_owner == false)
-				writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
-			dcache->owner = dcache->origin_owner;
+		if(dcache->origin_owner == false){
+			if(dcache->task){
+				kthread_stop(dcache->task);
+				dcache->task = NULL;
+			}
+			dcache->owner = false;
+			writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
+		}
 	}
 	mutex_unlock(&dcache_list_lock);
 
@@ -194,7 +199,6 @@ void hb_change_state(void)
 	mutex_lock(&dcache_list_lock);
 	list_for_each_entry(dcache, &dcache_list, list) {
 		dcache->owner = true;
-		cache_thread_stop_nowait(&dcache->conn->asender);
 	}
 	mutex_unlock(&dcache_list_lock);
 }

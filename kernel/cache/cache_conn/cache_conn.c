@@ -311,7 +311,7 @@ static struct socket *cache_try_connect(struct cache_connection *connection)
 
 	int err, peer_addr_len, my_addr_len;
 	int sndbuf_size, rcvbuf_size, connect_int = 10;
-	int disconnect_on_error = 1;
+
 /*
 	rcu_read_lock();
 	nc = rcu_dereference(connection->net_conf);
@@ -347,7 +347,7 @@ static struct socket *cache_try_connect(struct cache_connection *connection)
 	sock->sk->sk_sndtimeo = connect_int * HZ;
 //cache_setbufsize(sock, sndbuf_size, rcvbuf_size);
 
-       /* explicitly bind to the configured IP as source IP
+    /* explicitly bind to the configured IP as source IP
 	*  for the outgoing connections.
 	*  This is needed for multihomed hosts and to be
 	*  able to use lo: interfaces for cache.
@@ -359,9 +359,6 @@ static struct socket *cache_try_connect(struct cache_connection *connection)
 	if (err < 0)
 		goto out;
 
-	/* connect may fail, peer not yet available.
-	 * stay C_WF_CONNECTION, don't go Disconnecting! */
-	disconnect_on_error = 0;
 	what = "connect";
 	err = sock->ops->connect(sock, (struct sockaddr *) &peer_in6, peer_addr_len, 0);
 
@@ -370,19 +367,6 @@ out:
 		if (sock) {
 			sock_release(sock);
 			sock = NULL;
-		}
-		switch (-err) {
-			/* timeout, busy, signal pending */
-		case ETIMEDOUT: case EAGAIN: case EINPROGRESS:
-		case EINTR: case ERESTARTSYS:
-			/* peer not (yet) available, network problem */
-		case ECONNREFUSED: case ENETUNREACH:
-		case EHOSTDOWN:    case EHOSTUNREACH:
-			disconnect_on_error = 0;
-			break;
-		default:
-			cache_err("connect peer: %s failed, err = %d\n", what, err);
-			break;
 		}
 	}
 
@@ -605,6 +589,7 @@ randomize:
 	rcu_read_unlock();
 
 	msock.socket->sk->sk_sndtimeo = timeout;
+
 */
 	/* we don't want delays.
 	 * we use TCP_CORK where appropriate, though */
@@ -619,8 +604,6 @@ randomize:
 
 //	connection->data.socket->sk->sk_sndtimeo = timeout;
 //	connection->data.socket->sk->sk_rcvtimeo = MAX_SCHEDULE_TIMEOUT;
-
-//	cache_thread_start(&connection->asender);
 
 	return h;
 
@@ -662,7 +645,7 @@ retry:
 		complete(&thi->start);
 		cache_socket_receive(connection);
 		
-		if(!peer_is_good && get_t_state(&connection->receiver) == RUNNING) {
+		if(get_t_state(&connection->receiver) == RUNNING) {
 			cache_free_sock(&connection->data);
 			cache_dbg("wait for incoming connection.\n");
 			goto retry;
@@ -679,7 +662,8 @@ int cache_mreceiver(struct cache_thread *thi)
 
 	cache_info("mreceiver thread (re)started\n");
 	
-	err=cache_msocket_receive(connection);
+	err = cache_msocket_receive(connection);
+	cache_free_sock(&connection->meta);
 	
 	return err;
 }

@@ -6,7 +6,7 @@
 # unless it's something special (not a .c file).
 #
 # Note 2! The CFLAGS definitions are now in the main makefile.
-EXTRA_CFLAGS += -I$(src)/../../include 
+EXTRA_CFLAGS += -g -I$(src)/../../include 
 
 dcache-y	:= cache.o cache_lru.o cache_wb.o cache_rw.o cache_proc.o
 dcache-y		+= cache_conn/cache_conn.o cache_conn/cache_receiver.o cache_conn/cache_sender.o \
