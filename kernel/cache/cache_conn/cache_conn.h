@@ -101,7 +101,9 @@ struct cache_work_queue {
 
 struct cache_work {
 	struct list_head list;
-	int (*cb)(struct cache_work *);
+	struct packet_info * info;
+	void *private;
+	int (*cb)(struct  cache_connection *conn, struct packet_info * info, void *private);
 };
 
 struct cache_request{
@@ -211,6 +213,7 @@ struct cache_connection{
 	unsigned long flags;
 	struct net_conf *net_conf;	/* content protected by rcu */
 	wait_queue_head_t ping_wait;	/* Woken upon reception of a ping, and a state change */
+	atomic_t packet_seq;
 
 	struct cache_socket data;		/* data/barrier/cstate/parameter packets */
 	struct cache_socket meta;	/* ping/ack (metadata) packets */
@@ -224,8 +227,12 @@ struct cache_connection{
 	struct cache_thread worker;
 	struct cache_thread asender; /* used for data ack and wrote index */
 
-	atomic_t packet_seq;
 	/* sender side */
+	struct list_head request_list;
+	spinlock_t request_lock;
+	atomic_t nr_cmnds;
+
+	/* receiver side */
 	struct cache_work_queue sender_work;
 	int ko_count;
 
@@ -234,16 +241,12 @@ struct cache_connection{
 	spinlock_t epoch_lock;
 	unsigned int epochs;
 	unsigned long last_received;
-
-	struct list_head request_list;
-	spinlock_t request_lock;
-	atomic_t nr_cmnds;
 };
 
 struct data_cmd {
 	int expect_payload;
 	size_t pkt_size;
-	int (*fn)(struct cache_connection *, struct packet_info *);
+	int (*fn)(struct cache_connection *, struct packet_info *, void* private);
 };
 
 static inline enum cache_thread_state get_t_state(struct cache_thread *thi)
@@ -290,7 +293,7 @@ int send_first_packet(struct cache_connection *connection, struct cache_socket *
 			     enum cache_packet cmd);
 
 void cache_socket_receive(struct cache_connection *connection);
-int cache_msocket_receive(struct cache_connection *connection);
+void cache_msocket_receive(struct cache_connection *connection);
 
 int cache_send_dblock(struct cache_connection *connection, struct page **pages, 
 				int count, u32 size, sector_t sector, struct cache_request ** req);

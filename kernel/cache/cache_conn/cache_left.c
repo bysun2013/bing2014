@@ -47,68 +47,6 @@ static void unregister_state_change(struct sock *sk, struct accept_wait_data *ad
 	write_unlock_bh(&sk->sk_callback_lock);
 }
 
-int cache_worker(struct cache_thread *thi)
-{
-	struct cache_connection *connection = thi->connection;
-	struct cache_work *w = NULL;
-	struct cache_peer_device *peer_device;
-	LIST_HEAD(work_list);
-	int vnr;
-
-	while (get_t_state(thi) == RUNNING) {
-		cache_thread_current_set_cpu(thi);
-
-		/* as long as we use cache_queue_work_front(),
-		 * we may only dequeue single work items here, not batches. */
-		if (list_empty(&work_list))
-			wait_for_work(connection, &work_list);
-
-		if (signal_pending(current)) {
-			flush_signals(current);
-			if (get_t_state(thi) == RUNNING) {
-				cache_warn(connection, "Worker got an unexpected signal\n");
-				continue;
-			}
-			break;
-		}
-
-		if (get_t_state(thi) != RUNNING)
-			break;
-
-		while (!list_empty(&work_list)) {
-			w = list_first_entry(&work_list, struct cache_work, list);
-			list_del_init(&w->list);
-			if (w->cb(w, connection->cstate < C_WF_REPORT_PARAMS) == 0)
-				continue;
-			if (connection->cstate >= C_WF_REPORT_PARAMS)
-				conn_request_state(connection, NS(conn, C_NETWORK_FAILURE), CS_HARD);
-		}
-	}
-
-	do {
-		while (!list_empty(&work_list)) {
-			w = list_first_entry(&work_list, struct cache_work, list);
-			list_del_init(&w->list);
-			w->cb(w, 1);
-		}
-		dequeue_work_batch(&connection->sender_work, &work_list);
-	} while (!list_empty(&work_list));
-
-	rcu_read_lock();
-	idr_for_each_entry(&connection->peer_devices, peer_device, vnr) {
-		struct cache_device *device = peer_device->device;
-		D_ASSERT(device, device->state.disk == D_DISKLESS && device->state.conn == C_STANDALONE);
-		kobject_get(&device->kobj);
-		rcu_read_unlock();
-		cache_device_cleanup(device);
-		kobject_put(&device->kobj);
-		rcu_read_lock();
-	}
-	rcu_read_unlock();
-
-	return 0;
-}
-
 /**
  * cache_send_ack() - Sends an ack packet
  * @device:	cache device

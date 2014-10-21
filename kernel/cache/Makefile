@@ -10,6 +10,7 @@ EXTRA_CFLAGS += -g -I$(src)/../../include
 
 dcache-y	:= cache.o cache_lru.o cache_wb.o cache_rw.o cache_proc.o
 dcache-y		+= cache_conn/cache_conn.o cache_conn/cache_receiver.o cache_conn/cache_sender.o \
-				cache_conn/cache_cio.o cache_config.o cache_conn/cache_request.o
+				cache_conn/cache_cio.o cache_config.o cache_conn/cache_request.o \
+				cache_conn/cache_worker.o
 
 obj-m		+= dcache.o

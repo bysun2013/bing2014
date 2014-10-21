@@ -293,10 +293,10 @@ int cache_send_dblock(struct cache_connection *connection, struct page **pages,
 	p->block_id = (u64)pages;
 	p->seq_num = cpu_to_be32(seq_num);
 	
-	cache_dbg("begin to send cmd.\n");
+	cache_ignore("begin to send cmd.\n");
 	err = __send_command(connection, sock, P_DATA, sizeof(*p), NULL, size); /* size of total data written to device */
 	
-	cache_dbg("finish sending cmd, begin to send data.\n");
+	cache_ignore("finish sending cmd, begin to send data.\n");
 	if (!err) {
 		err = _cache_send_zc_pages(connection, pages, count, size);
 	}
@@ -332,7 +332,7 @@ int cache_send_wrote(struct cache_connection *connection,
 	*req = cache_request_alloc(connection, seq_num);
 	cache_request_enqueue(*req);
 
-	cache_dbg("begin to send wrote data.\n");
+	cache_ignore("begin to send wrote data.\n");
 	err = __send_command(connection, sock, P_DATA_WRITTEN, sizeof(*p), NULL, size);
 	if (!err)
 		err = cache_send_all(connection, socket, pages_index, size, 0);
@@ -340,12 +340,12 @@ int cache_send_wrote(struct cache_connection *connection,
 	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */	
 
 	if(err){
-		cache_dbg("send wrote data fail.\n");
+		cache_warn("send wrote data fail.\n");
 		cache_request_dequeue(*req);
 		return err;
 	}
 
-	cache_dbg("finish sending wrote data.\n");
+	cache_ignore("finish sending wrote data.\n");
 	return err;
 }
 
@@ -392,10 +392,10 @@ int cache_send_wrote_ack(struct cache_connection *connection,  u32 seq_num)
 
 	p->seq_num = cpu_to_be32(seq_num);
 
-	cache_dbg("begin to send wrote ack.\n");
+	cache_ignore("begin to send wrote ack.\n");
 	err = __send_command(connection, sock, P_WRITTEN_ACK, sizeof(*p), NULL, 0);
 
-	cache_dbg("finish sending wrote ack.\n");
+	cache_ignore("finish sending wrote ack.\n");
 	
 	mutex_unlock(&sock->mutex);  /* locked by conn_prepare_command() */	
 	

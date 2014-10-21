@@ -234,6 +234,8 @@ void _cache_thread_stop(struct cache_thread *thi, int restart, int wait)
 		thi->t_state = ns;
 		smp_mb();
 		init_completion(&thi->stop);
+		if (thi->task != current)
+			force_sig(SIGHUP, thi->task);
 	}
 	
 	spin_unlock_irqrestore(&thi->t_lock, flags);
@@ -644,7 +646,7 @@ retry:
 		cache_thread_start(&connection->asender);
 		complete(&thi->start);
 		cache_socket_receive(connection);
-		
+		cache_dbg("socket_receiver exits.\n");
 		if(get_t_state(&connection->receiver) == RUNNING) {
 			cache_free_sock(&connection->data);
 			cache_dbg("wait for incoming connection.\n");
@@ -657,15 +659,15 @@ retry:
 
 int cache_mreceiver(struct cache_thread *thi)
 {
-	int err;
 	struct cache_connection *connection = thi->connection;
 
 	cache_info("mreceiver thread (re)started\n");
 	
-	err = cache_msocket_receive(connection);
+	cache_msocket_receive(connection);
+	cache_dbg("socket_mreceiver exits.\n");
 	cache_free_sock(&connection->meta);
 	
-	return err;
+	return 0;
 }
 static struct cache_connection *cache_conn_create(struct dcache *dcache)
 {
@@ -722,11 +724,14 @@ static struct cache_connection *cache_conn_create(struct dcache *dcache)
 	peer_addr.sin_port=htons(dcache->port);
 	memcpy(&connection->peer_addr, &peer_addr, sizeof(peer_addr));
 
-	cache_thread_init(&connection->receiver, cache_receiver, "dreceiver");
+	cache_thread_init(&connection->receiver, cache_receiver, "cdreceiver");
 	connection->receiver.connection = connection;
-	cache_thread_init(&connection->asender, cache_mreceiver, "mreceiver");
+	cache_thread_init(&connection->worker, cache_worker, "cworker");
+	connection->worker.connection = connection;	
+	cache_thread_init(&connection->asender, cache_mreceiver, "cmreceiver");
 	connection->asender.connection = connection;
 
+	cache_thread_start(&connection->worker);
 	cache_thread_start(&connection->receiver);
 	
 	return connection;
@@ -750,6 +755,7 @@ static void cache_conn_destroy(struct dcache *dcache)
 
 	cache_thread_stop(&cache_conn->receiver);
 	cache_thread_stop(&cache_conn->asender);
+	cache_thread_stop(&cache_conn->worker);
 	
 	conn_disconnect(cache_conn);
 	cache_free_socket(&cache_conn->meta);

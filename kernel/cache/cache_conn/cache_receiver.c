@@ -24,6 +24,7 @@
 #include "../cache_def.h"
 #include "../cache.h"
 #include "cache_conn.h"
+#include "cache_worker.h"
 #include "../cache_config.h"
 
 static int decode_header(struct cache_connection *conn, void *header, struct packet_info *pi)
@@ -183,27 +184,21 @@ static struct cio* read_in_block(struct cache_connection *connection, sector_t s
 	return req;
 }
 
-static int receive_data(struct cache_connection * connection, struct packet_info * pi)
+static int receive_data(struct cache_connection * connection, struct packet_info * pi, void* private)
 {
 	struct dcache *dcache = connection->dcache;
-	struct cio * req;
+	struct cio * req = (struct cio *)private;
 	struct p_data *p = pi->data;
 	u32 peer_seq = be32_to_cpu(p->seq_num);
 	sector_t sector = be64_to_cpu(p->sector);
-
-	cache_dbg("begin to receive data.\n");
-	
-	req = read_in_block(connection, sector, pi);
-	if (!req) {
-		cache_err("Error occurs when receive data.\n");
-		return -EIO;
-	}
 	
 	cache_dbg("To write received data.\n");
 	_dcache_write((void *)dcache, req->pvec, req->pg_cnt, req->size, req->offset, REQUEST_FROM_PEER);
 
-	cache_send_data_ack(connection,peer_seq, sector);
+	cache_send_data_ack(connection, peer_seq, sector);
 
+	kfree(pi->data);
+	kfree(pi);
 	cio_put(req);
 	
 	cache_dbg("write received data into cache.\n");
@@ -213,7 +208,7 @@ static int receive_data(struct cache_connection * connection, struct packet_info
 /* 
 * use msock to receive writeback index 
 */
-static int receive_wrote(struct cache_connection *connection, struct packet_info *pi)
+static int receive_wrote(struct cache_connection *connection, struct packet_info *pi, void *private)
 {
 	struct dcache *dcache = connection->dcache;
 	struct p_block_wrote *p = pi->data;
@@ -260,12 +255,13 @@ static int receive_wrote(struct cache_connection *connection, struct packet_info
 	return err;
 }
 
-static int got_block_ack(struct cache_connection *connection, struct packet_info *pi)
+static int got_block_ack(struct cache_connection *connection, struct packet_info *pi, void* private)
 {
 	struct cache_request * req;
 	struct p_block_ack *p = pi->data;
 	u32 seq_num = be32_to_cpu(p->seq_num);
 
+	BUG_ON(private != NULL);
 	req = get_ready_request(connection, seq_num);
 	if(!req)
 		return 0;
@@ -276,12 +272,13 @@ static int got_block_ack(struct cache_connection *connection, struct packet_info
 	return 0;
 }
 
-static int got_wrote_ack(struct cache_connection *connection, struct packet_info *pi)
+static int got_wrote_ack(struct cache_connection *connection, struct packet_info *pi, void* private)
 {
 	struct cache_request * req;
 	struct p_wrote_ack *p = pi->data;
 	u32 seq_num = be32_to_cpu(p->seq_num);
 
+	BUG_ON(private != NULL);
 	req = get_ready_request(connection, seq_num);
 	if(!req)
 		return 0;
@@ -322,47 +319,74 @@ static struct data_cmd cache_cmd_handler[] = {
 
 void cache_socket_receive(struct cache_connection *connection)
 {
-	struct packet_info pi;
 	size_t shs; /* sub header size */
 	int err;
 
 	while (get_t_state(&connection->receiver) == RUNNING) {
+		struct packet_info *pi;
 		struct data_cmd *cmd;
-
-		err = cache_recv_header(connection, &connection->data, &pi);
+		struct cache_work *work;
+		struct p_data *p;
+		struct cio *req;
+		
+		pi = kmalloc(sizeof(*pi), GFP_KERNEL);
+		if(!pi) {
+			cache_alert("No free memory.\n");
+			return;
+		}
+		work = kmalloc(sizeof(*work), GFP_KERNEL);
+		if(!work) {
+			cache_alert("No free memory.\n");
+			kfree(pi);
+			return;
+		}
+		
+		err = cache_recv_header(connection, &connection->data, pi);
 		if(err < 0){
 			if (err == -EAGAIN && peer_is_good)
 				continue;
 			return;
 		}
-		WARN_ON(pi.cmd != P_DATA);
-		cmd = &cache_cmd_handler[pi.cmd];
-		if (unlikely(pi.cmd >= ARRAY_SIZE(cache_cmd_handler) || !cmd->fn)) {
+		WARN_ON(pi->cmd != P_DATA);
+		cmd = &cache_cmd_handler[pi->cmd];
+		if (unlikely(pi->cmd >= ARRAY_SIZE(cache_cmd_handler) || !cmd->fn)) {
 			cache_err("Unexpected data packet %s (0x%04x)\n",
-				 cmdname(pi.cmd), pi.cmd);
+				 cmdname(pi->cmd), pi->cmd);
 			return;
 		}
 
 		shs = cmd->pkt_size;
-		if (pi.size > shs && !cmd->expect_payload) {
+		if (pi->size > shs && !cmd->expect_payload) {
 			cache_err("No payload expected %s l:%d\n",
-				 cmdname(pi.cmd), pi.size);
+				 cmdname(pi->cmd), pi->size);
 			return;
 		}
-		cache_dbg("Cache cmd is %s.\n", cmdname(pi.cmd));
-		if (shs) {
-			err = cache_recv_all_warn(&connection->data, pi.data, shs);
-			if (err)
-				return;
-			pi.size -= shs;
+		cache_dbg("Cache cmd is %s.\n", cmdname(pi->cmd));
+
+		p = kmalloc(sizeof(*p), GFP_KERNEL);
+		if(!p){
+			cache_alert("No free memory.\n");
+			kfree(pi);
+			kfree(work);
 		}
 
-		err = cmd->fn(connection, &pi);
-		if (err) {
-			cache_err("error receiving %s, e: %d l: %d!\n",
-				 cmdname(pi.cmd), err, pi.size);
+		pi->data = p;
+		err = cache_recv_all_warn(&connection->data, p, shs);
+		if (err)
+			return;
+		pi->size -= shs;
+		
+		cache_dbg("begin to receive data.\n");
+		req = read_in_block(connection, be64_to_cpu(p->sector), pi);
+		if (!req) {
+			cache_err("Error occurs when receive data.\n");
 			return;
 		}
+
+		work->info = pi;
+		work->cb = cmd->fn;
+		work->private = (void *)req;
+		cache_queue_work(&connection->sender_work, work);
 	}
 
 	return;
@@ -371,7 +395,7 @@ void cache_socket_receive(struct cache_connection *connection)
 /*
 * it deal with sync of writeback index and all ack 
 */
-int cache_msocket_receive(struct cache_connection *connection)
+void cache_msocket_receive(struct cache_connection *connection)
 {
 	struct packet_info pi;
 	size_t shs; /* sub header size */
@@ -408,7 +432,7 @@ int cache_msocket_receive(struct cache_connection *connection)
 			pi.size -= shs;
 		}
 
-		err = cmd->fn(connection, &pi);
+		err = cmd->fn(connection, &pi, NULL);
 		if (err) {
 			cache_err("error receiving %s, e: %d l: %d!\n",
 				 cmdname(pi.cmd), err, pi.size);
@@ -416,10 +440,10 @@ int cache_msocket_receive(struct cache_connection *connection)
 		}
 	}
 	
-	return err;
+	return;
 	
 err_out:
 	cache_err("Error occurs when receive on msocket.\n");
-	return err;
+	return;
 }
 
