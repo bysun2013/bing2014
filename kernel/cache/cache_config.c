@@ -34,8 +34,8 @@
 #include "iet_cache_u.h"
 
 int machine_type;
-char echo_host[PATH_LEN]="10.17.11.1";
-char echo_peer[PATH_LEN]="10.17.11.2";
+char echo_host[PATH_LEN]="127.0.0.1";
+char echo_peer[PATH_LEN]="127.0.0.1";
 bool owner = true;
 
 static DEFINE_MUTEX(ioctl_mutex);

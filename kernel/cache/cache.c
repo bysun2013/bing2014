@@ -41,8 +41,7 @@
 #include "cache_proc.h"
 #include "cache_config.h"
 
-
-#define CACHE_VERSION "0.99"
+#define CACHE_VERSION "0.11-r8"
 
 /* by default, peer is false */
 bool peer_is_good = false;
@@ -59,6 +58,10 @@ struct kmem_cache *cache_request_cache;
 /* list all of caches, which represent volumes. */
 struct list_head dcache_list;
 struct mutex dcache_list_lock;
+
+/* list of threads, which wait for free pages */
+static struct list_head cache_wait_queue_head;
+static spinlock_t cache_wait_queue_lock;
 
 /*
 * when dirty pages is over the high thresh, writeback a fixed number
@@ -98,84 +101,142 @@ static void del_page_from_radix(struct dcache_page *dcache_page)
 	spin_unlock_irq(&dcache->tree_lock);
 }
 
-static struct dcache_page* dcache_get_free_page(struct dcache * dcache)
+typedef struct cache_wait_queue
 {
-	struct dcache_page *dcache_page=NULL;
-	
-	check_list_status();
-	dcache_page = lru_alloc_page();
-	if(dcache_page){
-		dcache_page->valid_bitmap = 0x00;
-		if(dcache_page->dcache){
-			atomic_dec(&dcache_page->dcache->total_pages);
-			del_page_from_radix(dcache_page);
-		}
-		return dcache_page;
-	}else{
-		wake_up_process(dcache_wb_forker);
+	struct list_head list;
+	struct task_struct *tsk;
+}cache_wait_queue;
+
+static inline void cache_wait_queue_init(cache_wait_queue *wait)
+{
+	INIT_LIST_HEAD(&(wait->list));
+	wait->tsk = current;
+}
+
+/* cache_wait_queue_lock MUST be hold */
+static inline void cache_add_wait_queue(struct dcache * dcache, cache_wait_queue *wait, int state)
+{
+	list_add_tail(&(wait->list), &cache_wait_queue_head);
+	__set_current_state(state);
+	spin_unlock_irq(&cache_wait_queue_lock);
+	/*
+	while(wait->list.prev != &cache_wait_queue_head){
+		unsigned int nr_wrote;
+		spin_unlock(&cache_wait_queue_lock);
+		nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 512, true);
+		set_current_state(TASK_INTERRUPTIBLE);
+		if(!nr_wrote && wait->list.prev != &cache_wait_queue_head)
+			schedule_timeout(10);
+		__set_current_state(TASK_RUNNING);
+		spin_lock(&cache_wait_queue_lock);
 	}
+	*/
+	if(state != TASK_RUNNING)
+		schedule_timeout(LONG_MAX);
+	else
+		schedule();
+}
+static void cache_wait_free_page(struct dcache *dcache, cache_wait_queue *wait, int state)
+{
+	spin_lock_irq(&cache_wait_queue_lock);
+
+	if(list_empty(&cache_wait_queue_head)){
+		spin_unlock_irq(&cache_wait_queue_lock);
+	}else{
+		cache_add_wait_queue(dcache, wait, state);
+	}
+}
+
+static void  cache_finish_wait_free_page(cache_wait_queue *wait)
+{
+	cache_wait_queue *next_wait;
+	struct list_head *next;
+
+	//WARN_ON(wait->list.prev != (struct list_head *)&cache_wait_queue_head);
+	if(wait->list.prev != (struct list_head *)&cache_wait_queue_head){
+		cache_alert("prev=%p, next=%p, self=%p, head=%p,h.next=%p\n",
+			wait->list.prev,wait->list.next, &(wait->list), &cache_wait_queue_head, cache_wait_queue_head.next);
+	}
+
+	//spin_lock_irq(&cache_wait_queue_lock);
+	//next = wait->list.next;
+	list_del_init(&(wait->list));
+	next = cache_wait_queue_head.next;
+
+	if(next != &cache_wait_queue_head){
+		next_wait = list_entry(next, cache_wait_queue, list);
+		wake_up_process(next_wait->tsk);
+	}
+	//spin_unlock_irq(&cache_wait_queue_lock);
+}
+
+static struct dcache_page* dcache_get_free_page(struct dcache * dcache, int block)
+{
+	struct dcache_page *dcache_page;
+	cache_wait_queue wait;
+
+	cache_wait_queue_init(&wait);
+	cache_wait_free_page(dcache, &wait, TASK_UNINTERRUPTIBLE);
 	
+	for(;;){
+		check_list_status();
+		dcache_page = lru_alloc_page();
+		if(dcache_page) {
+			dcache_page->valid_bitmap = 0x00;
+			if(dcache_page->dcache){
+				atomic_dec(&dcache_page->dcache->total_pages);
+				del_page_from_radix(dcache_page);
+			}
+			spin_lock_irq(&cache_wait_queue_lock);
+			if(!list_empty_careful(&(wait.list)))
+				cache_finish_wait_free_page(&wait);
+			spin_unlock_irq(&cache_wait_queue_lock);
+			cache_dbg("get free page\n");
+			return dcache_page;
+		}else{
+			//if(!block)
+			//	return NULL;
+			spin_lock_irq(&cache_wait_queue_lock);
+			if(!list_empty_careful(&(wait.list))){
+				spin_unlock_irq(&cache_wait_queue_lock);
+				schedule();
+				continue;
+			}
+			
+			if(list_empty(&cache_wait_queue_head)){
+				cache_add_wait_queue(dcache, &wait, TASK_RUNNING);
+			}else{
+				cache_add_wait_queue(dcache, &wait, TASK_UNINTERRUPTIBLE);
+			}
+		}
+	}
+
 	return NULL;
 }
 
-#define RETRY_GRT_PAGE	3
-static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache)
+static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache, int block)
 {
-	struct dcache_page *dcache_page = NULL;
-	int retry = RETRY_GRT_PAGE;
-	
-	while(retry--) {
-		dcache_page = dcache_get_free_page(dcache);
-		if(dcache_page)
-			break;
-		
-		if(dcache->owner) {
-			unsigned int nr_wrote;
-			nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 256, true);
-			if(!nr_wrote) {
-				set_current_state(TASK_INTERRUPTIBLE);
-				schedule_timeout(HZ >> 3);
-				__set_current_state(TASK_RUNNING);				
-			}
-		} else {
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(HZ >> 3);
-			__set_current_state(TASK_RUNNING);
-		}
+	struct dcache_page *dcache_page;
+
+	spin_lock_irq(&cache_wait_queue_lock);
+	if(!block && !list_empty(&cache_wait_queue_head)){
+		spin_unlock_irq(&cache_wait_queue_lock);
+		return NULL;
 	}
-	
-	if(!dcache_page)
-		cache_dbg("%s: Cache is used up! dirty_pages:%d\n", 
-			dcache->path, atomic_read(&dcache->dirty_pages));
-	
+	spin_unlock_irq(&cache_wait_queue_lock);
+
+	dcache_page = dcache_get_free_page(dcache, block);
+
 	return dcache_page;
 }
 
 static struct dcache_page* dcache_write_get_free_page(struct dcache * dcache)
 {
-	struct dcache_page *dcache_page = NULL;
-	
-	while(1) {
-		dcache_page = dcache_get_free_page(dcache);
-		if(dcache_page)
-			break;
-		
-		if(dcache->owner) {
-			unsigned int nr_wrote;
-			nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 4096, true);
-			if(!nr_wrote) {
-				set_current_state(TASK_INTERRUPTIBLE);
-				schedule_timeout(HZ >> 3);
-				__set_current_state(TASK_RUNNING);				
-			}
-		}else{
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(HZ >> 3);
-			__set_current_state(TASK_RUNNING);
-		}
-	}
-	
-	return dcache_page;
+	struct dcache_page *dcache_page;
+
+	dcache_page = dcache_get_free_page(dcache, 1);
+
+	return dcache_page;	
 }
 
 /*
@@ -498,16 +559,20 @@ again:
 			dcache_page= dcache_find_get_page(dcache, index);
 
 			if(dcache_page) {	/* Read Hit */
-				lock_page(dcache_page->page);
 				
-				if(dcache_page->dcache != dcache || dcache_page->index != index) {
-					cache_dbg("read page have been changed.\n");
-					unlock_page(dcache_page->page);
-					goto again;
+				if(!trylock_page(dcache_page->page)){
+					if(dcache_page->dcache == dcache && dcache_page->index == index) {
+						if(unlikely(current->plug))
+							cache_err("plug is not flushed.\n");
+						lock_page(dcache_page->page);
+					}else	{
+						cache_dbg("read page have been changed.\n");
+						goto again;
+					}
 				}
 				
 				/* if page to read is invalid, read from disk */
-				if(unlikely(dcache_page->valid_bitmap != 0xff)) {
+				if(dcache_page->valid_bitmap != 0xff) {
 					cache_ignore("data to read isn't 0xff, try to read from disk.\n");
 					
 					err=dcache_check_read_blocks(dcache_page, dcache_page->valid_bitmap, 0xff);
@@ -524,15 +589,18 @@ again:
 				lru_read_hit_handle(dcache_page);
 				unlock_page(dcache_page->page);
 			}else{	/* Read Miss */
-				dcache_page=dcache_read_get_free_page(dcache);
-				if(!dcache_page)
-					break;
+				if(page_to_read){
+					dcache_page = dcache_read_get_free_page(dcache, 0);
+					if(!dcache_page)
+						break;
+				}else
+					dcache_page = dcache_read_get_free_page(dcache, 1);
 				
 				dcache_page->dcache=dcache;
 				dcache_page->index=index;
 
 				err=dcache_add_page(dcache, dcache_page);
-				if(unlikely(err)){
+				if(err){
 					if(err==-EEXIST){
 						cache_dbg("This page exists, try again!\n");
 						dcache_page->dcache= NULL;
@@ -582,13 +650,11 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 	loff_t real_ppos = ppos;
 	sector_t lba, alba, lba_off;
 	pgoff_t page_index;
-
-	cache_dbg("The write request start from %lld, include %d pages\n", ppos >> PAGE_SHIFT, (int)pg_cnt);
 	
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		err = cache_send_dblock(dcache->conn, pages, pg_cnt, real_size, real_ppos>>SECTOR_SHIFT, &req);
 		if(err){
-			cache_dbg("Send data block fails.\n");
+			cache_err("Send data block fails.\n");
 			return err;
 		}
 	}
@@ -647,7 +713,9 @@ int dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t
 	
 	BUG_ON(ppos % SECTOR_SIZE != 0);
 	err = _dcache_read(dcachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
-
+	if(err)
+		cache_err("read err, err is %d\n", err);
+	
 	return err;
 }
 
@@ -660,6 +728,8 @@ int dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_
 	
 	BUG_ON(ppos % SECTOR_SIZE != 0);
 	err = _dcache_write(dcachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
+	if(err)
+		cache_err("write err, err is %d\n", err);
 
 	return err;
 }
@@ -720,7 +790,7 @@ void* init_volume_dcache(const char *path, int owner, int port)
 	dcache->owner = vol_owner;
 	dcache->origin_owner = vol_owner;
 
-	dcache->conn = cache_conn_init(dcache);
+	//dcache->conn = cache_conn_init(dcache);
 
 	dcache_total_volume++;
 	
@@ -751,7 +821,7 @@ void del_volume_dcache(void *volume_dcachep)
 	if(dcache->owner && !peer_is_good)
 		writeback_single(dcache, DCACHE_WB_SYNC_ALL, LONG_MAX, false);
 
-	cache_conn_exit(dcache);
+	//cache_conn_exit(dcache);
 	
 	dcache_delete_radix_tree(dcache);
 	
@@ -831,6 +901,10 @@ static int dcache_global_init(void)
 	
 	INIT_LIST_HEAD(&dcache_list);
 	mutex_init(&dcache_list_lock);
+	
+	/* wait queue for get free page */
+	INIT_LIST_HEAD(&cache_wait_queue_head);
+	spin_lock_init(&cache_wait_queue_lock);
 
 	dcache_struct_addr = iet_mem_virt;
 	dcache_data_addr = iet_mem_virt + iet_mem_size -PAGE_SIZE;

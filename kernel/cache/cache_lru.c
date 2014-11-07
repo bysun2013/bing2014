@@ -48,28 +48,31 @@ struct task_struct *lru_shrink_thread;
 extern unsigned long dcache_total_pages;
 extern void dcache_end_page_writeback(struct dcache_page *dcache_page);
 
-static long list_length(struct list_head *lru, spinlock_t *lock)
+static long list_locked_length(struct list_head *lru, spinlock_t *lock)
 {
 	struct list_head *list;
+	struct dcache_page *dcache_page;
 	long total = 0;
 	
 	spin_lock_irq(lock);
 	list_for_each(list, lru) {
-		total++;
+		dcache_page = list_entry(list, struct dcache_page, list);
+		if(PageLocked(dcache_page->page))
+			total++;
 	}
 	spin_unlock_irq(lock);
 
 	return total;
 }
 
-long inactive_length(void)
+long inactive_locked_length(void)
 {
-	return list_length(&inactive_list, &inactive_lock);
+	return list_locked_length(&inactive_list, &inactive_lock);
 }
 
-long active_length(void)
+long active_locked_length(void)
 {
-	return list_length(&active_list, &active_lock);
+	return list_locked_length(&active_list, &active_lock);
 }
 
 
@@ -95,8 +98,9 @@ struct dcache_page* lru_alloc_page(void)
 {
 	struct dcache_page *dcache_page = NULL;
 	struct list_head * pos,*temp;
+	
+	spin_lock(&inactive_lock);
 	if(!list_empty(&inactive_list)){
-		spin_lock_irq(&inactive_lock);
 		list_for_each_prev_safe(pos,temp, &inactive_list) {
 			dcache_page = list_entry(pos, struct dcache_page, list);
 			if(!trylock_page(dcache_page->page))
@@ -110,9 +114,9 @@ struct dcache_page* lru_alloc_page(void)
 			atomic_dec(&inactive_list_length);
 			return dcache_page;
 		}
-		spin_unlock_irq(&inactive_lock);
 		dcache_page = NULL;
 	}
+	spin_unlock(&inactive_lock);
 	return dcache_page;
 }
 
@@ -138,11 +142,16 @@ static void lru_add_list(struct list_head *list,struct list_head *lru,spinlock_t
 {
 	struct list_head *first,*last;
 	struct dcache_page * dcache_page;
-	if(list_empty(list))
+
+	spin_lock_irq(lock);
+	if(list_empty(list)){
+		spin_unlock_irq(lock);
 		return;
+	}
+
 	first = list->next;
 	last = list->prev;
-	spin_lock_irq(lock);
+	
 	list_connect(lru,list);
 	while(first != (last->next)){
 		dcache_page = list_entry(first,struct dcache_page,list);
@@ -180,9 +189,12 @@ static void move_active_to_inactive(int len)
 	struct list_head *pos;
 	struct dcache_page * dcache_page;
 	LIST_HEAD(list);
-	if(list_empty(&active_list))
-		return;
+
 	spin_lock_irq(&active_lock);
+	if(list_empty(&active_list)){
+		spin_unlock_irq(&active_lock);
+		return;
+	}
 	
 	/*as multi-thread happens ,check again ,*/
 	if(!inactive_is_low(&len)){
@@ -356,11 +368,14 @@ void lru_writeback_add_list(struct list_head *list,struct list_head *lru,
 {
 	struct list_head *first,*last;
 	struct dcache_page *dcache_page = NULL;
-	if(list_empty(list))
+
+	spin_lock_irq(lock);
+	if(list_empty(list)){
+		spin_unlock_irq(lock);
 		return;
+	}
 	first = list->next;
 	last = list->prev;
-	spin_lock_irq(lock);
 	list_connect(lru,list);
 	while(first != last->next){
 		dcache_page = list_entry(first,struct dcache_page,list);
@@ -440,11 +455,11 @@ static int lru_list_shrink(void * args)
 				continue;
 		}
 		schedule_timeout(msecs_to_jiffies(ACTIVE_TIMEOUT * 1000)); /* transform second to millisecond */
-		cache_ignore("shrink list begin,inactive is %d,active is %d\n", \
+		cache_dbg("shrink list begin,inactive is %d,active is %d\n", \
 					atomic_read(&inactive_list_length),atomic_read(&active_list_length));
 		shrink_inactive_list();
 		shrink_active_list();
-		cache_ignore("shrink list finish,inactive is %d,active is %d\n", \
+		cache_dbg("shrink list finish,inactive is %d,active is %d\n", \
 					atomic_read(&inactive_list_length),atomic_read(&active_list_length));
 	}
 	return 0;

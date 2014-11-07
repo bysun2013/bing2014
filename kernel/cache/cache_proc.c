@@ -30,8 +30,8 @@
 extern atomic_t inactive_list_length;
 extern atomic_t active_list_length;
 
-long inactive_length(void);
-long active_length(void);
+long inactive_locked_length(void);
+long active_locked_length(void);
 
 
 typedef void (cache_show_info_t)(struct seq_file *seq, void *p);
@@ -58,7 +58,7 @@ static void *cache_seq_start(struct seq_file *m, loff_t *pos)
 	seq_printf(m, "\tpage_dirty:%ld, inactive:%d, active:%d,  peer: %d\n", 
 		pages_dirty, inactive, active, peer_is_good);
 
-	seq_printf(m, "\tTraverse List, inactive: %ld, active: %ld\n", inactive_length(), active_length());
+	seq_printf(m, "\tLocked, inactive: %ld, active: %ld\n", inactive_locked_length(), active_locked_length());
 	seq_printf(m, "iSCSI Cache include %d volumes:\n", dcache_total_volume);
 
 	return seq_list_start(&dcache_list, *pos);

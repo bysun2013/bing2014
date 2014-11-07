@@ -74,7 +74,7 @@ static int cache_recv(struct cache_socket *cache_socket, void *buf, size_t size)
 	rv = cache_recv_short(cache_socket->socket, buf, size, 0);
 
 	if (rv < 0) {
-		cache_err( "sock_recvmsg returned %d\n", rv);
+		cache_ignore( "sock_recvmsg returned %d\n", rv);
 		if (rv == -ECONNRESET)
 			cache_info("sock was reset by peer\n");
 	} else if (rv == 0) {

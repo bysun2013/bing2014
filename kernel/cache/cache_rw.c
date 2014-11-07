@@ -891,7 +891,7 @@ continue_unlock:
 				TestClearPageWriteback(dcache_page->page);
 				smp_mb__after_clear_bit();
 				wake_up_page(dcache_page->page, PG_writeback);
-				goto continue_unlock;
+				continue;
 			}
 			
 			if(!PageActive(dcache_page->page))
