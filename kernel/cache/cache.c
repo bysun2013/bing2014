@@ -41,7 +41,7 @@
 #include "cache_proc.h"
 #include "cache_config.h"
 
-#define CACHE_VERSION "0.11-r8"
+#define CACHE_VERSION "0.11-r18"
 
 /* by default, peer is false */
 bool peer_is_good = false;
@@ -72,9 +72,13 @@ static int over_high_watermark(struct dcache * dcache)
 	long dirty_pages = atomic_read(&dcache->dirty_pages);
 	long inactive_pages = atomic_read(&inactive_list_length);
 	long active_pages = atomic_read(&active_list_length);
-	
-	/* if clean pages is above 1/8 of total pages, do nothing */
-	if((inactive_pages + active_pages) > dcache_total_pages >> 3)
+
+	/* if clean pages is above 1/16 of total pages, do nothing */
+	long level = dcache_total_pages >> 4;
+	if(level < 256)
+		level = 256;
+
+	if((inactive_pages + active_pages) > level)
 		return 0;
 	if(dirty_pages * dcache_total_volume < dcache_total_pages)
 		return 0;
@@ -86,7 +90,7 @@ static int decrease_dirty_ratio(struct dcache * dcache)
 {
 	int wrote = 0;
 	if(over_high_watermark(dcache))
-		wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 1024, true);
+		wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 512, true);
 
 	return wrote;
 }
@@ -94,7 +98,7 @@ static int decrease_dirty_ratio(struct dcache * dcache)
 static void del_page_from_radix(struct dcache_page *dcache_page)
 {
 	struct  dcache *dcache = dcache_page->dcache;
-	
+
 	spin_lock_irq(&dcache->tree_lock);
 	radix_tree_delete(&dcache->page_tree, dcache_page->index);
 	dcache_page->dcache = NULL;
@@ -117,31 +121,22 @@ static inline void cache_wait_queue_init(cache_wait_queue *wait)
 static inline void cache_add_wait_queue(struct dcache * dcache, cache_wait_queue *wait, int state)
 {
 	list_add_tail(&(wait->list), &cache_wait_queue_head);
-	__set_current_state(state);
-	spin_unlock_irq(&cache_wait_queue_lock);
-	/*
-	while(wait->list.prev != &cache_wait_queue_head){
-		unsigned int nr_wrote;
+
+	while(wait != list_first_entry(&cache_wait_queue_head, cache_wait_queue, list)){
+		__set_current_state(state);
 		spin_unlock(&cache_wait_queue_lock);
-		nr_wrote = writeback_single(dcache, DCACHE_WB_SYNC_NONE, 512, true);
-		set_current_state(TASK_INTERRUPTIBLE);
-		if(!nr_wrote && wait->list.prev != &cache_wait_queue_head)
-			schedule_timeout(10);
+		schedule_timeout(LONG_MAX);
 		__set_current_state(TASK_RUNNING);
 		spin_lock(&cache_wait_queue_lock);
 	}
-	*/
-	if(state != TASK_RUNNING)
-		schedule_timeout(LONG_MAX);
-	else
-		schedule();
+	spin_unlock(&cache_wait_queue_lock);
 }
 static void cache_wait_free_page(struct dcache *dcache, cache_wait_queue *wait, int state)
 {
-	spin_lock_irq(&cache_wait_queue_lock);
+	spin_lock(&cache_wait_queue_lock);
 
 	if(list_empty(&cache_wait_queue_head)){
-		spin_unlock_irq(&cache_wait_queue_lock);
+		spin_unlock(&cache_wait_queue_lock);
 	}else{
 		cache_add_wait_queue(dcache, wait, state);
 	}
@@ -152,14 +147,12 @@ static void  cache_finish_wait_free_page(cache_wait_queue *wait)
 	cache_wait_queue *next_wait;
 	struct list_head *next;
 
-	//WARN_ON(wait->list.prev != (struct list_head *)&cache_wait_queue_head);
 	if(wait->list.prev != (struct list_head *)&cache_wait_queue_head){
 		cache_alert("prev=%p, next=%p, self=%p, head=%p,h.next=%p\n",
 			wait->list.prev,wait->list.next, &(wait->list), &cache_wait_queue_head, cache_wait_queue_head.next);
 	}
 
-	//spin_lock_irq(&cache_wait_queue_lock);
-	//next = wait->list.next;
+	spin_lock(&cache_wait_queue_lock);
 	list_del_init(&(wait->list));
 	next = cache_wait_queue_head.next;
 
@@ -167,7 +160,7 @@ static void  cache_finish_wait_free_page(cache_wait_queue *wait)
 		next_wait = list_entry(next, cache_wait_queue, list);
 		wake_up_process(next_wait->tsk);
 	}
-	//spin_unlock_irq(&cache_wait_queue_lock);
+	spin_unlock(&cache_wait_queue_lock);
 }
 
 static struct dcache_page* dcache_get_free_page(struct dcache * dcache, int block)
@@ -176,7 +169,8 @@ static struct dcache_page* dcache_get_free_page(struct dcache * dcache, int bloc
 	cache_wait_queue wait;
 
 	cache_wait_queue_init(&wait);
-	cache_wait_free_page(dcache, &wait, TASK_UNINTERRUPTIBLE);
+	if(block)
+		cache_wait_free_page(dcache, &wait, TASK_UNINTERRUPTIBLE);
 	
 	for(;;){
 		check_list_status();
@@ -187,22 +181,21 @@ static struct dcache_page* dcache_get_free_page(struct dcache * dcache, int bloc
 				atomic_dec(&dcache_page->dcache->total_pages);
 				del_page_from_radix(dcache_page);
 			}
-			spin_lock_irq(&cache_wait_queue_lock);
-			if(!list_empty_careful(&(wait.list)))
+			
+			if(!list_empty(&(wait.list)))
 				cache_finish_wait_free_page(&wait);
-			spin_unlock_irq(&cache_wait_queue_lock);
+			
 			cache_dbg("get free page\n");
 			return dcache_page;
 		}else{
-			//if(!block)
-			//	return NULL;
-			spin_lock_irq(&cache_wait_queue_lock);
-			if(!list_empty_careful(&(wait.list))){
-				spin_unlock_irq(&cache_wait_queue_lock);
+			if(!block)
+				return NULL;
+			
+			if(!list_empty(&(wait.list))){
 				schedule();
 				continue;
 			}
-			
+			spin_lock(&cache_wait_queue_lock);
 			if(list_empty(&cache_wait_queue_head)){
 				cache_add_wait_queue(dcache, &wait, TASK_RUNNING);
 			}else{
@@ -217,14 +210,14 @@ static struct dcache_page* dcache_get_free_page(struct dcache * dcache, int bloc
 static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache, int block)
 {
 	struct dcache_page *dcache_page;
-
-	spin_lock_irq(&cache_wait_queue_lock);
+/*
+	spin_lock(&cache_wait_queue_lock);
 	if(!block && !list_empty(&cache_wait_queue_head)){
-		spin_unlock_irq(&cache_wait_queue_lock);
+		spin_unlock(&cache_wait_queue_lock);
 		return NULL;
 	}
-	spin_unlock_irq(&cache_wait_queue_lock);
-
+	spin_unlock(&cache_wait_queue_lock);
+*/
 	dcache_page = dcache_get_free_page(dcache, block);
 
 	return dcache_page;
@@ -296,7 +289,6 @@ static void copy_dcache_to_pages(struct dcache_page *dcache_page, struct page* p
 		}
 		dest += SECTOR_SIZE;
 	}
-
 }
 
 static int dcache_add_page(struct dcache *dcache,  struct dcache_page* dcache_page)
@@ -398,13 +390,11 @@ static int  dcache_write_page(void *dcachep, pgoff_t page_index, struct page* pa
 	struct dcache *dcache = (struct dcache *)dcachep;
 	struct dcache_page *dcache_page;
 	int err=0;
-		
+
 again:
 	dcache_page= dcache_find_get_page(dcache, page_index);
 
 	if(dcache_page == NULL){	/* Write Miss */
-		if(dcache->owner)
-			decrease_dirty_ratio(dcache);
 		dcache_page=dcache_write_get_free_page(dcache);
 		dcache_page->dcache=dcache;
 		dcache_page->index=page_index;
@@ -570,6 +560,11 @@ again:
 						goto again;
 					}
 				}
+				if(dcache_page->dcache != dcache || dcache_page->index != index){
+					cache_dbg("read page have been changed.\n");
+					unlock_page(dcache_page->page);
+					goto again;
+				}
 				
 				/* if page to read is invalid, read from disk */
 				if(dcache_page->valid_bitmap != 0xff) {
@@ -589,12 +584,12 @@ again:
 				lru_read_hit_handle(dcache_page);
 				unlock_page(dcache_page->page);
 			}else{	/* Read Miss */
-				if(page_to_read){
+				/*if(page_to_read){
 					dcache_page = dcache_read_get_free_page(dcache, 0);
 					if(!dcache_page)
 						break;
 				}else
-					dcache_page = dcache_read_get_free_page(dcache, 1);
+				*/	dcache_page = dcache_read_get_free_page(dcache, 1);
 				
 				dcache_page->dcache=dcache;
 				dcache_page->index=index;
@@ -693,14 +688,17 @@ int _dcache_write(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff
 
 	if(from == REQUEST_FROM_OUT && peer_is_good) {
 		cache_dbg("wait for data ack.\n");
-		if(wait_for_completion_timeout(&req->done, HZ*15) == 0) {
+		if(wait_for_completion_timeout(&req->done, HZ*15) == 0) {  
 			cache_warn("timeout when wait for data ack.\n");
 			cache_request_dequeue(req);
 		}else
 			kmem_cache_free(cache_request_cache, req);
 		cache_dbg("ok, get data ack, go on!\n");
 	}
-	
+/*
+	if(dcache->owner)
+		decrease_dirty_ratio(dcache);
+*/
 	return err;
 }
 
@@ -799,9 +797,6 @@ void* init_volume_dcache(const char *path, int owner, int port)
 
 /**
 * It's called when delete one volume
-*
-* FIXME 
-* In case memory leak, it's necessary to delete all the pages in the radix tree.
 */
 void del_volume_dcache(void *volume_dcachep)
 {

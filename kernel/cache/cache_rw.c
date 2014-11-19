@@ -580,8 +580,7 @@ static struct bio * dcache_mpage_alloc(struct block_device *bdev,
 	if (bio) {
 		bio->bi_bdev = bdev;
 		bio->bi_sector = first_sector;
-	}else
-		cache_dbg("the bio include %d vecs.\n", nr_vecs);
+	}
 
 	return bio;
 }
@@ -721,12 +720,12 @@ static int dcache_do_writepage(struct dcache_page *dcache_page,
 	struct bio* bio = mpd->bio;
 	struct dcache *dcache = dcache_page->dcache;
 	struct block_device * bdev = dcache->bdev;
-	
+/*	
 	if((dcache_page->dirty_bitmap & 0xff) != 0xff) {
 		cache_ignore("This page isn't dirty entirely.\n");
 		goto confused;
 	}
-
+*/
 	if (bio && (mpd->last_page_in_bio != dcache_page->index -1))
 		bio = dcache_mpage_bio_submit(bio, WRITE);
 
@@ -736,7 +735,7 @@ alloc_new:
 			  	min_t(long, nr_pages, bio_get_nr_vecs(bdev)),
 				GFP_KERNEL);
 		if (bio == NULL){
-			cache_warn("Memory has been used up...\n");
+			cache_alert("Memory has been used up...\n");
 			goto confused;
 		}
 		bio->bi_private = tio_work;
@@ -754,11 +753,11 @@ alloc_new:
 	return err;
 	
 confused:
-	if (bio)
+/*	if (bio)
 		bio = dcache_mpage_bio_submit(bio, WRITE);
 	
 	mpd->bio = bio;
-	
+*/
 	/* although I believe the minimal block should be 4KB, but I must check it */ 
 	err = dcache_write_page_blocks(dcache_page);
 	
@@ -911,9 +910,9 @@ continue_unlock:
 			}
 			
 			++wr_pages;
-			if(!is_seq && (wr_pages > PVEC_NORMAL_SIZE)){		
+			if(!is_seq && (wr_pages > PVEC_NORMAL_SIZE)){
 				/* writeback all bio, not include current bio */
-				if(likely(mpd->bio))
+				if(mpd->bio)
 					atomic_dec(&tio_work->bios_remaining);
 				
 				blk_finish_plug(&plug);
@@ -926,7 +925,7 @@ continue_unlock:
 				atomic_set(&tio_work->bios_remaining, 0);
 				init_completion(&tio_work->tio_complete);
 				blk_start_plug(&plug);
-				if(likely(mpd->bio)){
+				if(mpd->bio){
 					atomic_inc(&tio_work->bios_remaining);
 					wr_pages++;
 				}
