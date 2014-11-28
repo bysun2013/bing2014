@@ -137,7 +137,7 @@ out:
 	return err;
 }
 
-static int dcache_rw_page(struct dcache_page *dcache_page, int rw)
+int dcache_rw_page(struct dcache_page *dcache_page, int rw)
 {
 	struct block_device *bdev = dcache_page->dcache->bdev;
 	struct tio_work *tio_work;
@@ -202,7 +202,8 @@ static int _dcache_rw_page_blocks(struct dcache_page *dcache_page, unsigned char
 
 	if(unlikely((bitmap & 0xff) == 0xff)){
 		err=dcache_rw_page(dcache_page, rw);
-		return err;
+		if(unlikely(err))
+			goto error;
 	}
 	
 	for(i = 0; i < SECTORS_ONE_PAGE; i++){
