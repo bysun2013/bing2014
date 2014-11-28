@@ -41,7 +41,7 @@
 #include "cache_proc.h"
 #include "cache_config.h"
 
-#define CACHE_VERSION "0.11-r18"
+#define CACHE_VERSION "0.11.28.03"
 
 /* by default, peer is false */
 bool peer_is_good = false;
@@ -163,7 +163,7 @@ static void  cache_finish_wait_free_page(cache_wait_queue *wait)
 	spin_unlock(&cache_wait_queue_lock);
 }
 
-static struct dcache_page* dcache_get_free_page(struct dcache * dcache, int block)
+static struct dcache_page*  dcache_get_free_page(struct dcache * dcache, int block)
 {
 	struct dcache_page *dcache_page;
 	cache_wait_queue wait;
@@ -210,14 +210,7 @@ static struct dcache_page* dcache_get_free_page(struct dcache * dcache, int bloc
 static struct dcache_page* dcache_read_get_free_page(struct dcache * dcache, int block)
 {
 	struct dcache_page *dcache_page;
-/*
-	spin_lock(&cache_wait_queue_lock);
-	if(!block && !list_empty(&cache_wait_queue_head)){
-		spin_unlock(&cache_wait_queue_lock);
-		return NULL;
-	}
-	spin_unlock(&cache_wait_queue_lock);
-*/
+
 	dcache_page = dcache_get_free_page(dcache, block);
 
 	return dcache_page;
@@ -235,7 +228,7 @@ static struct dcache_page* dcache_write_get_free_page(struct dcache * dcache)
 /*
 * copy data to wrote into cache
 */
-static void copy_pages_to_dcache(struct page* page, struct dcache_page *dcache_page, 
+static void copy_pages_to_dcache(const struct page* page, const struct dcache_page *dcache_page, 
 	unsigned char bitmap, unsigned int skip_blk, unsigned int bytes)
 {
 	char *dest, *source;
@@ -265,7 +258,7 @@ static void copy_pages_to_dcache(struct page* page, struct dcache_page *dcache_p
 /*
 * copy data to read from cache
 */
-static void copy_dcache_to_pages(struct dcache_page *dcache_page, struct page* page, 
+static void copy_dcache_to_pages(const struct dcache_page *dcache_page, const struct page* page, 
 	unsigned char bitmap, unsigned int skip_blk)
 {
 	char *dest, *source;
@@ -316,7 +309,6 @@ static struct dcache_page* dcache_find_get_page(struct dcache *dcache, pgoff_t i
 	struct dcache_page * dcache_page;
 	void **pagep;
 	
-	rcu_read_lock();
 repeat:
 	dcache_page = NULL;
 	pagep = radix_tree_lookup_slot(&dcache->page_tree, index);
@@ -324,8 +316,11 @@ repeat:
 		dcache_page = radix_tree_deref_slot(pagep);
 		if (unlikely(!dcache_page))
 			goto out;
-		if (radix_tree_deref_retry(dcache_page))
-			goto repeat;
+		if (radix_tree_exception(dcache_page)) {
+			if (radix_tree_deref_retry(dcache_page))
+				goto repeat;
+			goto out;
+		}
 		if (unlikely(dcache_page != *pagep)) {
 			cache_warn("page has been moved.\n");
 			goto repeat;
@@ -398,7 +393,6 @@ again:
 		dcache_page=dcache_write_get_free_page(dcache);
 		dcache_page->dcache=dcache;
 		dcache_page->index=page_index;
-
 		err=dcache_add_page(dcache, dcache_page);
 		if(unlikely(err)){
 			if(err==-EEXIST){
@@ -460,13 +454,14 @@ again:
 		lru_write_hit_handle(dcache_page);
 		unlock_page(dcache_page->page);
 	}
+	
 	return err;
 }
 
 /*
 * copy data from cache page to page of request
 */
-static void dcache_read_page(struct dcache_page * dcache_page, struct page** pages, 
+static void dcache_read_page(const struct dcache_page * dcache_page, struct page** pages, 
 		unsigned int pg_cnt, u32 size, loff_t ppos)
 {
 	int cache_sector_index = dcache_page->index << SECTORS_ONE_PAGE_SHIFT;
@@ -517,20 +512,20 @@ static void dcache_read_page(struct dcache_page * dcache_page, struct page** pag
 			if(skip_blk >= SECTORS_ONE_PAGE)
 				break;
 		}
-		
 	}
 }
 
 /**
 * according to size of request, read all the data one time
 */
-static int _dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos, enum request_from from)
+static int _dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t ppos)
 {
 	struct dcache *dcache = (struct dcache *)dcachep;
 	struct dcache_page **dcache_pages;
+	pgoff_t index, page_start, page_end;
+	struct dcache_page *dcache_page;
+	int i, page_to_read = 0;
 	int err = 0;
-	int index;
-	pgoff_t page_start, page_end;
 	
 	page_start = ppos >> PAGE_SHIFT;
 	page_end =  (ppos +size -1) >> PAGE_SHIFT;
@@ -539,90 +534,81 @@ static int _dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size
 	dcache_pages = kzalloc((page_end - page_start + 1) * sizeof(struct dcache_page *), GFP_KERNEL);
 	if(!dcache_pages)
 		return -ENOMEM;
-	
+
 	while(index <= page_end) {
-		struct dcache_page *dcache_page;
-		int i, page_to_read = 0;
-
-		for(; index<= page_end; index++) {
+		cond_resched();
 again:
-			dcache_page= dcache_find_get_page(dcache, index);
+		dcache_page= dcache_find_get_page(dcache, index);
 
-			if(dcache_page) {	/* Read Hit */
-				
-				if(!trylock_page(dcache_page->page)){
-					if(dcache_page->dcache == dcache && dcache_page->index == index) {
-						if(unlikely(current->plug))
-							cache_err("plug is not flushed.\n");
-						lock_page(dcache_page->page);
-					}else	{
-						cache_dbg("read page have been changed.\n");
-						goto again;
-					}
-				}
-				if(dcache_page->dcache != dcache || dcache_page->index != index){
-					cache_dbg("read page have been changed.\n");
-					unlock_page(dcache_page->page);
-					goto again;
-				}
-				
-				/* if page to read is invalid, read from disk */
-				if(dcache_page->valid_bitmap != 0xff) {
-					cache_ignore("data to read isn't 0xff, try to read from disk.\n");
-					
-					err=dcache_check_read_blocks(dcache_page, dcache_page->valid_bitmap, 0xff);
-					if(unlikely(err)) {
-						cache_err("Error occurs when read missed blocks.\n");
-						unlock_page(dcache_page->page);
-						kfree(dcache_pages);
-						return err;
-					}
-					dcache_page->valid_bitmap = 0xff;
-				}
-
-				dcache_read_page(dcache_page, pages, pg_cnt, size, ppos);
-				lru_read_hit_handle(dcache_page);
+		if(dcache_page) {	/* Read Hit */
+			lock_page(dcache_page->page);
+			
+			if(dcache_page->dcache != dcache || dcache_page->index != index){
+				cache_dbg("read page have been changed.\n");
 				unlock_page(dcache_page->page);
-			}else{	/* Read Miss */
-				/*if(page_to_read){
-					dcache_page = dcache_read_get_free_page(dcache, 0);
-					if(!dcache_page)
-						break;
-				}else
-				*/	dcache_page = dcache_read_get_free_page(dcache, 1);
+				goto again;
+			}
+			
+			/* if page to read is invalid, read from disk */
+			/*
+			if(dcache_page->valid_bitmap != 0xff) {
+				cache_ignore("data to read isn't 0xff, try to read from disk.\n");
 				
-				dcache_page->dcache=dcache;
-				dcache_page->index=index;
-
-				err=dcache_add_page(dcache, dcache_page);
-				if(err){
-					if(err==-EEXIST){
-						cache_dbg("This page exists, try again!\n");
-						dcache_page->dcache= NULL;
-						dcache_page->index= -1;
-						unlock_page(dcache_page->page);
-						lru_set_page_back(dcache_page);
-						err = 0;
-						goto again;
-					}
-					cache_err("Error occurs when read miss, err = %d\n", err);
+				err=dcache_check_read_blocks(dcache_page, dcache_page->valid_bitmap, 0xff);
+				if(unlikely(err)) {
+					cache_err("Error occurs when read missed blocks.\n");
 					unlock_page(dcache_page->page);
-					lru_set_page_back(dcache_page);
 					kfree(dcache_pages);
 					return err;
 				}
-				dcache_pages[page_to_read++] = dcache_page;
+				dcache_page->valid_bitmap = 0xff;
 			}
-		}
+			*/
 
-		dcache_read_mpage(dcache, dcache_pages, page_to_read);
+			dcache_read_page(dcache_page, pages, pg_cnt, size, ppos);
+			lru_read_hit_handle(dcache_page);
+			unlock_page(dcache_page->page);
+		}else{	/* Read Miss */
+			/*if(page_to_read){
+				dcache_page = dcache_read_get_free_page(dcache, 0);
+				if(!dcache_page)
+					break;
+			}else
+			*/	dcache_page = dcache_read_get_free_page(dcache, 1);
+			
+			dcache_page->dcache=dcache;
+			dcache_page->index=index;
 
-		for(i=0; i < page_to_read; i++) {
-			dcache_read_page(dcache_pages[i], pages, pg_cnt, size, ppos);
-			lru_read_miss_handle(dcache_pages[i]);
-			unlock_page(dcache_pages[i]->page);
+			err=dcache_add_page(dcache, dcache_page);
+			if(err){
+				if(err==-EEXIST){
+					cache_dbg("This page exists, try again!\n");
+					dcache_page->dcache= NULL;
+					dcache_page->index= -1;
+					unlock_page(dcache_page->page);
+					lru_set_page_back(dcache_page);
+					err = 0;
+					goto again;
+				}
+				cache_err("Error occurs when read miss, err = %d\n", err);
+				unlock_page(dcache_page->page);
+				lru_set_page_back(dcache_page);
+				kfree(dcache_pages);
+				return err;
+			}
+			dcache_pages[page_to_read++] = dcache_page;
 			atomic_inc(&dcache->total_pages);
 		}
+		index++;
+	}
+
+	dcache_read_mpage(dcache, dcache_pages, page_to_read);
+	
+	for(i=0; i < page_to_read; i++) {
+		dcache_page->valid_bitmap =  0xff;
+		dcache_read_page(dcache_pages[i], pages, pg_cnt, size, ppos);
+		lru_read_miss_handle(dcache_pages[i]);
+		unlock_page(dcache_pages[i]->page);
 	}
 
 	kfree(dcache_pages);
@@ -710,7 +696,7 @@ int dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size, loff_t
 	int err;
 	
 	BUG_ON(ppos % SECTOR_SIZE != 0);
-	err = _dcache_read(dcachep, pages, pg_cnt, size, ppos, REQUEST_FROM_OUT);
+	err = _dcache_read(dcachep, pages, pg_cnt, size, ppos);
 	if(err)
 		cache_err("read err, err is %d\n", err);
 	

@@ -54,13 +54,13 @@ static long list_locked_length(struct list_head *lru, spinlock_t *lock)
 	struct dcache_page *dcache_page;
 	long total = 0;
 	
-	spin_lock_irq(lock);
+	spin_lock(lock);
 	list_for_each(list, lru) {
 		dcache_page = list_entry(list, struct dcache_page, list);
 		if(PageLocked(dcache_page->page))
 			total++;
 	}
-	spin_unlock_irq(lock);
+	spin_unlock(lock);
 
 	return total;
 }
@@ -75,19 +75,18 @@ long active_locked_length(void)
 	return list_locked_length(&active_list, &active_lock);
 }
 
-
 static void lru_page_add(struct list_head *list,struct list_head *lru, spinlock_t * lock)
 {
-	spin_lock_irq(lock);
+	spin_lock(lock);
 	list_add(list, lru);
-	spin_unlock_irq(lock);	
+	spin_unlock(lock);	
 }
 
 static void lru_page_add_tail(struct list_head *list,struct list_head *lru,spinlock_t * lock)
 {
-	spin_lock_irq(lock);
+	spin_lock(lock);
 	list_add_tail(list, lru);
-	spin_unlock_irq(lock);
+	spin_unlock(lock);
 }
 
 /*
@@ -110,7 +109,7 @@ struct dcache_page* lru_alloc_page(void)
 				ClearPageReferenced(dcache_page->page);
 			if(PageActive(dcache_page->page))
 				ClearPageActive(dcache_page->page);
-			spin_unlock_irq(&inactive_lock);
+			spin_unlock(&inactive_lock);
 			atomic_dec(&inactive_list_length);
 			return dcache_page;
 		}
@@ -118,19 +117,6 @@ struct dcache_page* lru_alloc_page(void)
 	}
 	spin_unlock(&inactive_lock);
 	return dcache_page;
-}
-
-/*
- *  add src list to the head of dst
- */
-static void list_connect(struct list_head *dst,struct list_head *src)
-{
-	if(list_empty(src))
-		return;
-	src->next->prev = dst;
-	src->prev->next = dst->next;
-	dst->next->prev = src->prev;
-	dst->next = src->next;
 }
 
 /*
@@ -143,22 +129,22 @@ static void lru_add_list(struct list_head *list,struct list_head *lru,spinlock_t
 	struct list_head *first,*last;
 	struct dcache_page * dcache_page;
 
-	spin_lock_irq(lock);
+	spin_lock(lock);
 	if(list_empty(list)){
-		spin_unlock_irq(lock);
+		spin_unlock(lock);
 		return;
 	}
 
 	first = list->next;
 	last = list->prev;
 	
-	list_connect(lru,list);
+	list_splice(list, lru);
 	while(first != (last->next)){
 		dcache_page = list_entry(first,struct dcache_page,list);
 		unlock_page(dcache_page->page);
 		first = first->next;
 	}
-	spin_unlock_irq(lock);	
+	spin_unlock(lock);	
 }
 
 /*
@@ -190,15 +176,15 @@ static void move_active_to_inactive(int len)
 	struct dcache_page * dcache_page;
 	LIST_HEAD(list);
 
-	spin_lock_irq(&active_lock);
+	spin_lock(&active_lock);
 	if(list_empty(&active_list)){
-		spin_unlock_irq(&active_lock);
+		spin_unlock(&active_lock);
 		return;
 	}
 	
 	/*as multi-thread happens ,check again ,*/
 	if(!inactive_is_low(&len)){
-		spin_unlock_irq(&active_lock);
+		spin_unlock(&active_lock);
 		return ;
 	}	
 	
@@ -222,7 +208,7 @@ static void move_active_to_inactive(int len)
 		atomic_dec(&active_list_length);
 		atomic_inc(&inactive_list_length);
 	}
-	spin_unlock_irq(&active_lock);
+	spin_unlock(&active_lock);
 	
 	lru_add_list(&list,&inactive_list,&inactive_lock);
 }
@@ -276,15 +262,15 @@ void lru_set_page_back(struct dcache_page *dcache_page)
 void lru_del_page(struct dcache_page * dcache_page)
 {
 	if(dcache_page->site == inactive){
-		spin_lock_irq(&inactive_lock);
+		spin_lock(&inactive_lock);
 		list_del_init(&dcache_page->list);
-		spin_unlock_irq(&inactive_lock);
+		spin_unlock(&inactive_lock);
 		atomic_dec(&inactive_list_length);
 	}
 	else if(dcache_page->site == active){
-		spin_lock_irq(&active_lock);
+		spin_lock(&active_lock);
 		list_del_init(&dcache_page->list);
-		spin_unlock_irq(&active_lock);
+		spin_unlock(&active_lock);
 		atomic_dec(&active_list_length);
 	}
 }
@@ -369,14 +355,14 @@ void lru_writeback_add_list(struct list_head *list,struct list_head *lru,
 	struct list_head *first,*last;
 	struct dcache_page *dcache_page = NULL;
 
-	spin_lock_irq(lock);
+	spin_lock(lock);
 	if(list_empty(list)){
-		spin_unlock_irq(lock);
+		spin_unlock(lock);
 		return;
 	}
 	first = list->next;
 	last = list->prev;
-	list_connect(lru,list);
+	list_splice(list, lru);
 	while(first != last->next){
 		dcache_page = list_entry(first,struct dcache_page,list);
 		dcache_page->site = site;
@@ -385,7 +371,7 @@ void lru_writeback_add_list(struct list_head *list,struct list_head *lru,
 		atomic_inc(list_len);
 		first = first->next;
 	}
-	spin_unlock_irq(lock);
+	spin_unlock(lock);
 }
 
 void inactive_writeback_add_list(struct list_head *list)
@@ -406,7 +392,7 @@ static void shrink_active_list(void)
 	struct list_head * pos,*tmp;
 	struct dcache_page * dcache_page;
 	LIST_HEAD(list);
-	spin_lock_irq(&active_lock);
+	spin_lock(&active_lock);
 	list_for_each_prev_safe(pos,tmp,&active_list){
 		dcache_page = list_entry(pos,struct dcache_page,list);
 		if(!trylock_page(dcache_page->page))
@@ -424,7 +410,7 @@ static void shrink_active_list(void)
 		}
 		//unlock_page(page);
 	}
-	spin_unlock_irq(&active_lock);
+	spin_unlock(&active_lock);
 	
 	lru_add_list(&list,&inactive_list,&inactive_lock);
 }
@@ -433,7 +419,7 @@ static void shrink_inactive_list(void)
 {
 	struct list_head * pos;
 	struct dcache_page * dcache_page;
-	spin_lock_irq(&inactive_lock);
+	spin_lock(&inactive_lock);
 	list_for_each(pos,&inactive_list){
 		dcache_page = list_entry(pos,struct dcache_page,list);
 		if(!trylock_page(dcache_page->page))
@@ -442,7 +428,7 @@ static void shrink_inactive_list(void)
 			ClearPageReferenced(dcache_page->page);
 		unlock_page(dcache_page->page);
 	}
-	spin_unlock_irq(&inactive_lock);
+	spin_unlock(&inactive_lock);
 }
 
 static int lru_list_shrink(void * args)

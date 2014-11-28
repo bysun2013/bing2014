@@ -59,7 +59,7 @@ static void dcache_page_endio(struct bio *bio, int error)
 
 		if (--bvec >= bio->bi_io_vec)
 			prefetchw(&bvec->bv_page->flags);
-		if (unlikely(bio_data_dir(bio) == WRITE)){
+		if (bio_data_dir(bio) == WRITE){
 			cache_dbg("Single Page: WRITEBACK one page. Index is %llu.\n", 
 				(unsigned long long)dcache_page->index);
 		}
@@ -137,7 +137,7 @@ out:
 	return err;
 }
 
-static int dcache_rw_page(struct dcache_page *dcache_page, int rw)
+static int dcache_rw_page(const struct dcache_page *dcache_page, int rw)
 {
 	struct block_device *bdev = dcache_page->dcache->bdev;
 	struct tio_work *tio_work;
@@ -202,7 +202,8 @@ static int _dcache_rw_page_blocks(struct dcache_page *dcache_page, unsigned char
 
 	if(unlikely((bitmap & 0xff) == 0xff)){
 		err=dcache_rw_page(dcache_page, rw);
-		return err;
+		if(unlikely(err))
+			goto error;
 	}
 	
 	for(i = 0; i < SECTORS_ONE_PAGE; i++){
@@ -547,9 +548,9 @@ static void dcache_mpage_endio(struct bio *bio, int err)
 			prefetchw(&bvec->bv_page->flags);
 		
 		if (bio_data_dir(bio) == READ) {
-			dcache_page->valid_bitmap = 0xff;
+			//dcache_page->valid_bitmap = 0xff;
 			cache_ignore("READ one page. Index is %llu\n",
-				(unsigned long long)dcache_page->index);		
+				(unsigned long long)dcache_page->index);
 		} else { /* WRITE */
 			cache_ignore("Mpage: WRITEBACK one page. Index is %llu\n", 
 				(unsigned long long)dcache_page->index);
@@ -598,7 +599,7 @@ struct bio *dcache_mpage_bio_submit(struct bio *bio, int rw)
 	return NULL;
 }
 
-static int dcache_do_readpage(struct dcache_page *dcache_page, int nr_pages,
+static int dcache_do_readpage(const struct dcache_page *dcache_page, int nr_pages,
 	struct cache_mpage_data *mpd, struct tio_work *tio_work)
 {	
 	int err = 0;
@@ -633,12 +634,14 @@ alloc_new:
 	return err;
 	
 confused:
-	if (bio)
+/*	if (bio)
 		bio = dcache_mpage_bio_submit(bio, READ);
-
-	err = dcache_rw_page(dcache_page, READ);
 	
-	mpd->bio = bio;
+*/	mpd->bio = bio;
+
+	cache_err("run here is not good!\n");
+	err = dcache_rw_page(dcache_page, READ);
+
 	return err;
 }
 
