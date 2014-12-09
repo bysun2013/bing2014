@@ -41,7 +41,7 @@
 #include "cache_proc.h"
 #include "cache_config.h"
 
-#define CACHE_VERSION "0.11.28.03"
+#define CACHE_VERSION "0.12.03.01"
 
 /* by default, peer is false */
 bool peer_is_good = false;
@@ -308,7 +308,8 @@ static struct dcache_page* dcache_find_get_page(struct dcache *dcache, pgoff_t i
 {
 	struct dcache_page * dcache_page;
 	void **pagep;
-	
+
+	rcu_read_lock();
 repeat:
 	dcache_page = NULL;
 	pagep = radix_tree_lookup_slot(&dcache->page_tree, index);
@@ -322,7 +323,6 @@ repeat:
 			goto out;
 		}
 		if (unlikely(dcache_page != *pagep)) {
-			cache_warn("page has been moved.\n");
 			goto repeat;
 		}
 	}
@@ -330,7 +330,6 @@ out:
 	rcu_read_unlock();
 
 	return dcache_page;
-
 }
 
 /*
@@ -523,8 +522,6 @@ static int _dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size
 	struct dcache *dcache = (struct dcache *)dcachep;
 	struct dcache_page **dcache_pages;
 	pgoff_t index, page_start, page_end;
-	struct dcache_page *dcache_page;
-	int i, page_to_read = 0;
 	int err = 0;
 	
 	page_start = ppos >> PAGE_SHIFT;
@@ -536,14 +533,27 @@ static int _dcache_read(void *dcachep, struct page **pages, u32 pg_cnt, u32 size
 		return -ENOMEM;
 
 	while(index <= page_end) {
+	struct dcache_page *dcache_page;
+	int i, page_to_read = 0;
+
+	for(; index<= page_end; index++) {
 		cond_resched();
 again:
 		dcache_page= dcache_find_get_page(dcache, index);
 
 		if(dcache_page) {	/* Read Hit */
-			lock_page(dcache_page->page);
+			if(!trylock_page(dcache_page->page)){
+				if(dcache_page->dcache != dcache || dcache_page->index != index) {
+					cache_dbg("read page have been changed.\n");
+					goto again;
+				}
+				if(!page_to_read)
+					lock_page(dcache_page->page);
+				else
+					break;
+			}
 			
-			if(dcache_page->dcache != dcache || dcache_page->index != index){
+			if(dcache_page->dcache != dcache || dcache_page->index != index) {
 				cache_dbg("read page have been changed.\n");
 				unlock_page(dcache_page->page);
 				goto again;
@@ -551,11 +561,11 @@ again:
 			
 			/* if page to read is invalid, read from disk */
 			/*
-			if(dcache_page->valid_bitmap != 0xff) {
+			if(unlikely(dcache_page->valid_bitmap != 0xff)) {
 				cache_ignore("data to read isn't 0xff, try to read from disk.\n");
 				
 				err=dcache_check_read_blocks(dcache_page, dcache_page->valid_bitmap, 0xff);
-				if(unlikely(err)) {
+				if(unlikely(err)){
 					cache_err("Error occurs when read missed blocks.\n");
 					unlock_page(dcache_page->page);
 					kfree(dcache_pages);
@@ -564,23 +574,17 @@ again:
 				dcache_page->valid_bitmap = 0xff;
 			}
 			*/
-
 			dcache_read_page(dcache_page, pages, pg_cnt, size, ppos);
 			lru_read_hit_handle(dcache_page);
 			unlock_page(dcache_page->page);
 		}else{	/* Read Miss */
-			/*if(page_to_read){
-				dcache_page = dcache_read_get_free_page(dcache, 0);
-				if(!dcache_page)
-					break;
-			}else
-			*/	dcache_page = dcache_read_get_free_page(dcache, 1);
+			dcache_page=dcache_read_get_free_page(dcache, 1);
 			
 			dcache_page->dcache=dcache;
 			dcache_page->index=index;
 
 			err=dcache_add_page(dcache, dcache_page);
-			if(err){
+			if(unlikely(err)){
 				if(err==-EEXIST){
 					cache_dbg("This page exists, try again!\n");
 					dcache_page->dcache= NULL;
@@ -593,22 +597,20 @@ again:
 				cache_err("Error occurs when read miss, err = %d\n", err);
 				unlock_page(dcache_page->page);
 				lru_set_page_back(dcache_page);
-				kfree(dcache_pages);
-				return err;
 			}
 			dcache_pages[page_to_read++] = dcache_page;
-			atomic_inc(&dcache->total_pages);
 		}
-		index++;
 	}
 
 	dcache_read_mpage(dcache, dcache_pages, page_to_read);
-	
+
 	for(i=0; i < page_to_read; i++) {
-		dcache_page->valid_bitmap =  0xff;
+		dcache_page->valid_bitmap = 0xff;
 		dcache_read_page(dcache_pages[i], pages, pg_cnt, size, ppos);
 		lru_read_miss_handle(dcache_pages[i]);
 		unlock_page(dcache_pages[i]->page);
+		atomic_inc(&dcache->total_pages);
+	}
 	}
 
 	kfree(dcache_pages);
@@ -726,7 +728,7 @@ void* init_volume_dcache(const char *path, int owner, int port)
 	struct dcache *dcache;
 	int vol_owner;
 	
-	dcache=kzalloc(sizeof(*dcache),GFP_KERNEL);
+	dcache =  kzalloc(sizeof(*dcache),GFP_KERNEL);
 	if(!dcache)
 		return NULL;
 
