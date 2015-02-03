@@ -352,18 +352,18 @@ void lru_write_hit_handle(struct dcache_page *dcache_page)
 void lru_writeback_add_list(struct list_head *list,struct list_head *lru,
 			spinlock_t *lock,atomic_t *list_len,enum page_site site)
 {
-	struct list_head *first,*last;
+	struct list_head *first, *last;
 	struct dcache_page *dcache_page = NULL;
 
-	spin_lock(lock);
-	if(list_empty(list)){
-		spin_unlock(lock);
+	if(list_empty(list))
 		return;
-	}
-	first = list->next;
-	last = list->prev;
+	
+	spin_lock(lock);
 	list_splice(list, lru);
-	while(first != last->next){
+	
+	first = list->next;
+	last = list->prev->next;
+	while(first != last){
 		dcache_page = list_entry(first,struct dcache_page,list);
 		dcache_page->site = site;
 		dcache_page->dirty_bitmap = 0x00;

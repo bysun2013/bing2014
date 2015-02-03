@@ -41,7 +41,7 @@
 #include "cache_proc.h"
 #include "cache_config.h"
 
-#define CACHE_VERSION "0.12.03.01"
+#define CACHE_VERSION "0.15.01.13"
 
 /* by default, peer is false */
 bool peer_is_good = false;
@@ -821,10 +821,19 @@ EXPORT_SYMBOL_GPL(dcache_read);
 EXPORT_SYMBOL_GPL(del_volume_dcache);
 EXPORT_SYMBOL_GPL(init_volume_dcache);
 
+extern int dcache_tio_work_init(void);
+extern void dcache_tio_work_exit(void);
+
 static int dcache_request_init(void)
 {
 	cache_request_cache = KMEM_CACHE(cache_request, 0);
 	return  cache_request_cache ? 0 : -ENOMEM;
+}
+
+static void dcache_request_exit(void)
+{
+	if(cache_request_cache)
+		kmem_cache_destroy(cache_request_cache);
 }
 
 static void dcache_global_exit(void)
@@ -838,9 +847,10 @@ static void dcache_global_exit(void)
 
 	wb_thread_exit();
 
-	if(cache_request_cache)
-		kmem_cache_destroy(cache_request_cache);
+	dcache_request_exit();
 
+	dcache_tio_work_exit();
+	
 	cio_exit();
 	
 	cache_info("Unload iSCSI Cache Module. All right \n");
@@ -875,6 +885,9 @@ static int dcache_global_init(void)
 	
 	if((err = dcache_request_init())< 0)
 		goto error;
+	
+	if((err = dcache_tio_work_init())< 0)
+		goto error;	
 	
 	if((err = cio_init())< 0)
 		goto error;

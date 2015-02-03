@@ -40,6 +40,19 @@ struct tio_work {
 	struct completion tio_complete;
 };
 
+struct kmem_cache *cache_tio_work_cache;
+
+int dcache_tio_work_init(void)
+{
+	cache_tio_work_cache = KMEM_CACHE(tio_work, 0);
+	return  cache_tio_work_cache ? 0 : -ENOMEM;
+}
+void dcache_tio_work_exit(void)
+{
+	if(cache_tio_work_cache)
+		kmem_cache_destroy(cache_tio_work_cache);
+}
+
 /*
 * called by disk driver, after data are read from disk
 */
@@ -92,7 +105,7 @@ static int dcache_rw_segment(struct dcache_page *dcache_page,
 	if(blocks==0)
 		return err;
 	
-	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
+	tio_work = kmem_cache_alloc(cache_tio_work_cache, GFP_KERNEL);
 	if (!tio_work){
 		err = -ENOMEM;
 		goto out;
@@ -128,12 +141,12 @@ static int dcache_rw_segment(struct dcache_page *dcache_page,
 
 	wait_for_completion(&tio_work->tio_complete);
 	err = atomic_read(&tio_work->error);
-	kfree(tio_work);
+	kmem_cache_free(cache_tio_work_cache, tio_work);
 	return err;
 out:
 	cache_err("Error occurs when page segment rw\n");
 	bio_put(bio);
-	kfree(tio_work);
+	kmem_cache_free(cache_tio_work_cache, tio_work);
 	return err;
 }
 
@@ -148,7 +161,7 @@ static int dcache_rw_page(const struct dcache_page *dcache_page, int rw)
 	int max_pages = 1;
 	int err = 0;
 	
-	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
+	tio_work = kmem_cache_alloc(cache_tio_work_cache, GFP_KERNEL);
 	if (!tio_work)
 		return -ENOMEM;
 	atomic_set(&tio_work->error, 0);
@@ -180,13 +193,13 @@ static int dcache_rw_page(const struct dcache_page *dcache_page, int rw)
 
 	wait_for_completion(&tio_work->tio_complete);
 	err = atomic_read(&tio_work->error);
-	kfree(tio_work);
+	kmem_cache_free(cache_tio_work_cache, tio_work);
 	return err;
 	
 out:
 	cache_err("Error occurs when page rw, err = %d\n", err);
 	bio_put(bio);
-	kfree(tio_work);
+	kmem_cache_free(cache_tio_work_cache, tio_work);
 	return err;
 }
 
@@ -660,7 +673,7 @@ static int _dcache_read_mpage(struct dcache *dcache, struct dcache_page **dcache
 	if(!dcache || !pg_cnt)
 		return 0;
 	
-	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
+	tio_work = kmem_cache_alloc(cache_tio_work_cache, GFP_KERNEL);
 	if (!tio_work)
 		return -ENOMEM;
 
@@ -691,7 +704,7 @@ static int _dcache_read_mpage(struct dcache *dcache, struct dcache_page **dcache
 	if(err)
 		cache_err("error when submit request to disk.\n");
 	
-	kfree(tio_work);
+	kmem_cache_free(cache_tio_work_cache, tio_work);
 	return err;
 }
 
@@ -778,7 +791,8 @@ static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_
 	int done = 0;
 	struct tio_work *tio_work;
 	struct dcache_page **pages;
-	pgoff_t wb_index[PVEC_MAX_SIZE];
+	//pgoff_t wb_index[PVEC_MAX_SIZE];
+	pgoff_t *wb_index;
 	pgoff_t writeback_index = 0;
 	pgoff_t index, done_index;
 	pgoff_t end;
@@ -795,7 +809,7 @@ static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_
 		cache_err("Out of memory!\n");
 		return -ENOMEM;
 	}
-	tio_work = kzalloc(sizeof (*tio_work), GFP_KERNEL);
+	tio_work = kmem_cache_alloc(cache_tio_work_cache, GFP_KERNEL);
 	if (!tio_work){
 		cache_err("Out of memory!\n");
 		kfree(pages);
@@ -902,7 +916,7 @@ continue_unlock:
 				list_add(&dcache_page->list, &list_active);
 			dcache_page->site = temp;
 			
-			wb_index[wrote_index++]= dcache_page->index;
+//			wb_index[wrote_index++]= dcache_page->index;
 			
 			atomic_dec(&dcache->dirty_pages);
 			
@@ -990,7 +1004,7 @@ sync_again:
 	
 error:
 	if(tio_work)
-		kfree(tio_work);
+		kmem_cache_free(cache_tio_work_cache, tio_work);
 	if(pages)
 		kfree(pages);
 	return err;

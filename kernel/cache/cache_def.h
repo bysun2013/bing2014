@@ -82,7 +82,7 @@ struct dcache_page{
 	/* block is 512 Byte, and page is 4KB */
 	unsigned char valid_bitmap;
 	unsigned char dirty_bitmap;
-}__attribute__((aligned(sizeof(u64))));
+};
 
 struct dcache{
 	u32 id;
