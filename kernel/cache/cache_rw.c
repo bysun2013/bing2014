@@ -791,8 +791,7 @@ static int dcache_writeback_mpage(struct dcache *dcache, struct cache_writeback_
 	int done = 0;
 	struct tio_work *tio_work;
 	struct dcache_page **pages;
-	//pgoff_t wb_index[PVEC_MAX_SIZE];
-	pgoff_t *wb_index;
+	pgoff_t wb_index[PVEC_MAX_SIZE];
 	pgoff_t writeback_index = 0;
 	pgoff_t index, done_index;
 	pgoff_t end;
