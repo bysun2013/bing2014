@@ -1,0 +1,40 @@
+diff -urN old/init/main.c new/init/main.c
+--- old/init/main.c	2014-03-20 17:16:20.000000000 +0800
++++ new/init/main.c	2015-06-29 15:09:42.445907379 +0800
+@@ -70,7 +70,6 @@
+ #include <linux/perf_event.h>
+ #include <linux/file.h>
+ #include <linux/ptrace.h>
+-#include <linux/posix-timers.h>
+ 
+ #include <asm/io.h>
+ #include <asm/bugs.h>
+@@ -465,7 +464,10 @@
+ 	pgtable_cache_init();
+ 	vmalloc_init();
+ }
+-
++char *iet_mem_virt;
++EXPORT_SYMBOL_GPL(iet_mem_virt);
++unsigned int iet_mem_size=0x1000000;
++EXPORT_SYMBOL_GPL(iet_mem_size);
+ asmlinkage void __init start_kernel(void)
+ {
+ 	char * command_line;
+@@ -503,7 +505,6 @@
+ 	setup_command_line(command_line);
+ 	setup_nr_cpu_ids();
+ 	setup_per_cpu_areas();
+-	softirq_early_init();
+ 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+ 
+ 	build_all_zonelists(NULL, NULL);
+@@ -526,6 +527,8 @@
+ 	vfs_caches_init_early();
+ 	sort_main_extable();
+ 	trap_init();
++	/* reserved for iscsi enterprise target */
++	iet_mem_virt=alloc_bootmem(iet_mem_size);
+ 	mm_init();
+ 
+ 	/*
